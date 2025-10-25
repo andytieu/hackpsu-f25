@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Gravitational Red Sphere with Orbiting Photons</title>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">
+        <h3>🔴 Gravitational Red Sphere</h3>
+        <p>Photons orbiting around a massive object</p>
+        <p>Photons: <span id="photon-count">0</span></p>
+        <p>Gravitational Force: <span id="gravity-strength">1.0</span></p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Create scene
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+
+        // Setup renderer
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000);
+        document.body.appendChild(renderer.domElement);
+
+        // Gravitational parameters
+        const gravityParams = {
+            mass: 1.0,
+            gravitationalConstant: 0.1,
+            maxPhotons: 30
+        };
+
+        // Create red sphere (gravitational object)
+        const sphereGeometry = new THREE.SphereGeometry(0.8, 32, 32);
+        const sphereMaterial = new THREE.MeshLambertMaterial({
+            color: 0xff0000,
+            emissive: 0x220000
+        });
+        const gravitationalObject = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        scene.add(gravitationalObject);
+
+        // Add lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        // Photon array
+        const photons = [];
+        const photonTrails = [];
+
+        // Create photons
+        function createPhotons() {
+            for (let i = 0; i < gravityParams.maxPhotons; i++) {
+                // Random starting position around the sphere
+                const angle = (i / gravityParams.maxPhotons) * Math.PI * 2;
+                const radius = 3 + Math.random() * 4; // Random orbital distance
+                const height = (Math.random() - 0.5) * 2; // Random height
+
+                // Create photon geometry (small sphere)
+                const photonGeometry = new THREE.SphereGeometry(0.05, 8, 6);
+                const photonMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffff00,
+                    emissive: 0x222200
+                });
+                const photon = new THREE.Mesh(photonGeometry, photonMaterial);
+
+                // Set initial position
+                photon.position.x = Math.cos(angle) * radius;
+                photon.position.z = Math.sin(angle) * radius;
+                photon.position.y = height;
+
+                // Store photon data
+                photon.userData = {
+                    angle: angle,
+                    radius: radius,
+                    height: height,
+                    velocity: new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.08,
+                        (Math.random() - 0.5) * 0.04,
+                        (Math.random() - 0.5) * 0.08
+                    ),
+                    orbitalSpeed: 0.04 + Math.random() * 0.08,
+                    trail: []
+                };
+
+                photons.push(photon);
+                scene.add(photon);
+
+                // Create trail
+                createPhotonTrail(photon);
+            }
+        }
+
+        // Create photon trail
+        function createPhotonTrail(photon) {
+            const trailGeometry = new THREE.BufferGeometry();
+            const trailMaterial = new THREE.LineBasicMaterial({
+                color: 0xffff00,
+                transparent: true,
+                opacity: 0.3
+            });
+            const trail = new THREE.Line(trailGeometry, trailMaterial);
+            trail.userData = { photon: photon, maxPoints: 50 };
+            photonTrails.push(trail);
+            scene.add(trail);
+        }
+
+        // Calculate gravitational force
+        function calculateGravitationalForce(photon) {
+            const distance = photon.position.length();
+            const direction = photon.position.clone().normalize();
+
+            // Gravitational force magnitude (inverse square law)
+            const forceMagnitude = (gravityParams.mass * gravityParams.gravitationalConstant) / (distance * distance);
+
+            // Apply force in direction toward the gravitational object
+            const force = direction.multiplyScalar(-forceMagnitude);
+
+            return force;
+        }
+
+        // Update photon physics
+        function updatePhotons() {
+            photons.forEach(photon => {
+                const userData = photon.userData;
+
+                // Calculate gravitational force
+                const gravitationalForce = calculateGravitationalForce(photon);
+
+                // Apply gravitational force to velocity
+                userData.velocity.add(gravitationalForce);
+
+                // Apply velocity to position
+                photon.position.add(userData.velocity);
+
+                // Add orbital motion
+                const orbitalForce = new THREE.Vector3(
+                    -photon.position.z * userData.orbitalSpeed,
+                    0,
+                    photon.position.x * userData.orbitalSpeed
+                );
+                userData.velocity.add(orbitalForce);
+
+                // Limit velocity to prevent runaway acceleration
+                if (userData.velocity.length() > 0.4) {
+                    userData.velocity.normalize().multiplyScalar(0.4);
+                }
+
+                // Add slight vertical oscillation
+                photon.position.y += Math.sin(Date.now() * 0.001 + userData.angle) * 0.001;
+
+                // Update trail
+                updatePhotonTrail(photon);
+
+                // Reset photon if it gets too far or too close
+                const distance = photon.position.length();
+                if (distance > 15 || distance < 1) {
+                    resetPhoton(photon);
+                }
+            });
+        }
+
+        // Update photon trail
+        function updatePhotonTrail(photon) {
+            const trail = photonTrails.find(t => t.userData.photon === photon);
+            if (!trail) return;
+
+            const trailData = trail.userData;
+            trailData.photon.userData.trail.push(photon.position.clone());
+
+            // Limit trail length
+            if (trailData.photon.userData.trail.length > trailData.maxPoints) {
+                trailData.photon.userData.trail.shift();
+            }
+
+            // Update trail geometry
+            if (trailData.photon.userData.trail.length > 1) {
+                const positions = new Float32Array(trailData.photon.userData.trail.length * 3);
+                trailData.photon.userData.trail.forEach((point, index) => {
+                    positions[index * 3] = point.x;
+                    positions[index * 3 + 1] = point.y;
+                    positions[index * 3 + 2] = point.z;
+                });
+
+                trail.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                trail.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        // Reset photon position
+        function resetPhoton(photon) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 4 + Math.random() * 3;
+            const height = (Math.random() - 0.5) * 2;
+
+            photon.position.x = Math.cos(angle) * radius;
+            photon.position.z = Math.sin(angle) * radius;
+            photon.position.y = height;
+
+            photon.userData.velocity.set(
+                (Math.random() - 0.5) * 0.08,
+                (Math.random() - 0.5) * 0.04,
+                (Math.random() - 0.5) * 0.08
+            );
+            photon.userData.trail = [];
+        }
+
+        // Position camera
+        camera.position.set(0, 3, 8);
+        camera.lookAt(0, 0, 0);
+
+        // Create photons
+        createPhotons();
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Rotate gravitational object
+            gravitationalObject.rotation.y += 0.005;
+            gravitationalObject.rotation.x += 0.002;
+
+            // Update photon physics
+            updatePhotons();
+
+            // Update UI
+            document.getElementById('photon-count').textContent = photons.length;
+            document.getElementById('gravity-strength').textContent = gravityParams.gravitationalConstant.toFixed(1);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowUp':
+                    gravityParams.gravitationalConstant = Math.min(0.5, gravityParams.gravitationalConstant + 0.05);
+                    break;
+                case 'ArrowDown':
+                    gravityParams.gravitationalConstant = Math.max(0.01, gravityParams.gravitationalConstant - 0.05);
+                    break;
+                case 'ArrowLeft':
+                    gravityParams.mass = Math.max(0.1, gravityParams.mass - 0.1);
+                    break;
+                case 'ArrowRight':
+                    gravityParams.mass = Math.min(3.0, gravityParams.mass + 0.1);
+                    break;
+            }
+        });
+    </script>
+</body>
+
+</html>
