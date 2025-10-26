@@ -1,25 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from mpi4py import MPI
 
 M = 1.0            
 a = 0.5            
-N_PHOTONS = 5
-<<<<<<< HEAD
+N_PHOTONS = 100
 LAMBDA_MAX = 200.0
 H_INIT = .1      
 RTOL = 1e-10     
 ATOL = 1e-13        
 H_MIN = 1e-8 
-H_MAX = 1e-2
-=======
-LAMBDA_MAX = 150.0
-H_INIT = 0.01        
-RTOL = 1e-6          
-ATOL = 1e-9        
-H_MIN = 1e-6         
-H_MAX = 0.1
->>>>>>> 98d90c0943e49af7efa2e8287f95e52e0f9bdbd4
+H_MAX = .1
 
 R_OBS = 50.0  
 THETA_OBS = np.pi/2 
@@ -260,7 +250,6 @@ def find_radial_root_bisection(r_lo, r_hi, E, Lz, Q, a_local=a, M_local=M, tol=1
     return 0.5*(r_lo + r_hi)
 
 
-<<<<<<< HEAD
 def simulate_photons(N_photons=N_PHOTONS, img_extent=IMG_EXTENT):
     n = int(np.ceil(np.sqrt(N_photons)))
     alphas = np.linspace(-img_extent, img_extent, n)
@@ -289,46 +278,6 @@ def simulate_photons(N_photons=N_PHOTONS, img_extent=IMG_EXTENT):
         results.append(entry)
 
     return results
-=======
-def simulate_single_photon(alpha, beta):
-    y0 = image_plane_to_initial_state(alpha, beta)
-    traj = integrate_rk45(lambda l, yy: geodesic_equations(l, yy, M, a),
-                          y0, 0.0, LAMBDA_MAX)
-    return {'alpha':alpha, 'beta':beta, 'traj':traj}
-
-
-def simulate_photons_mpi(N_photons=N_PHOTONS, img_extent=IMG_EXTENT):
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    size = comm.Get_size()
-
-    # Only rank 0 prepares the coordinates
-    if rank == 0:
-        n = int(np.ceil(np.sqrt(N_photons)))
-        alphas = np.linspace(-img_extent, img_extent, n)
-        betas  = np.linspace(-img_extent, img_extent, n)
-        coords = [(a, b) for b in betas for a in alphas][:N_photons]
-    else:
-        coords = None
-
-    # Scatter chunks of work
-    coords = comm.scatter(
-        [coords[i::size] for i in range(size)] if rank == 0 else None,
-        root=0
-    )
-
-    # Each rank computes its results
-    local_results = [simulate_single_photon(a, b) for a, b in coords]
-
-    # Gather all results at rank 0
-    all_results = comm.gather(local_results, root=0)
-
-    # Rank 0 flattens the list
-    if rank == 0:
-        return [item for sublist in all_results for item in sublist]
-    else:
-        return None
->>>>>>> 98d90c0943e49af7efa2e8287f95e52e0f9bdbd4
 
 
 def plot_geodesics(results, plot_radius=PLOT_RADIUS):
@@ -357,7 +306,6 @@ def plot_geodesics(results, plot_radius=PLOT_RADIUS):
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
     print("Simulating", N_PHOTONS, "photons with IMG_EXTENT=", IMG_EXTENT)
     results = simulate_photons(N_PHOTONS)
     
@@ -413,16 +361,3 @@ if __name__ == "__main__":
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.show()
-=======
-    from mpi4py import MPI
-    rank = MPI.COMM_WORLD.Get_rank()
-
-    if rank == 0:
-        print(f"Simulating {N_PHOTONS} photons across MPI ranks")
-
-    results = simulate_photons_mpi(N_PHOTONS)
-
-    # Only rank 0 proceeds to plotting or writing results
-    if rank == 0:
-        plot_geodesics(results)
->>>>>>> 98d90c0943e49af7efa2e8287f95e52e0f9bdbd4
