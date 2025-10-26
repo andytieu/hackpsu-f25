@@ -13,12 +13,15 @@ class GravitationalSphereSimulation {
         this.gravityParams = {
             mass: 1.0,
             gravitationalConstant: 0.1,
-            maxPhotons: 30
+            maxPhotons: 15, // Reduced for first cluster
+            maxPhotons2: 15 // Second cluster
         };
         
         // Arrays for photons and trails
         this.photons = [];
         this.photonTrails = [];
+        this.photons2 = []; // Second cluster
+        this.photonTrails2 = []; // Second cluster trails
         
         // Orbital camera parameters
         this.cameraRadius = 8;
@@ -37,6 +40,7 @@ class GravitationalSphereSimulation {
         this.createGravitationalObject();
         this.setupLighting();
         this.createPhotons();
+        this.createPhotons2();
         this.setupCamera();
         this.setupOrbitalCamera();
         this.setupEventListeners();
@@ -112,9 +116,59 @@ class GravitationalSphereSimulation {
         }
     }
     
+    createPhotons2() {
+        for (let i = 0; i < this.gravityParams.maxPhotons2; i++) {
+            // Create photons in a perpendicular orbital plane (around Y-axis)
+            const angle = (i / this.gravityParams.maxPhotons2) * Math.PI * 2;
+            const radius = 2.5 + Math.random() * 2.5; // Similar radius range
+            const height = (Math.random() - 0.5) * 0.8; // Smaller height variation
+
+            // Create photon geometry (small sphere) - different color for second cluster
+            const photonGeometry = new THREE.SphereGeometry(0.05, 8, 6);
+            const photonMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ffff, // Cyan color for second cluster
+                emissive: 0x002222
+            });
+            const photon = new THREE.Mesh(photonGeometry, photonMaterial);
+
+            // Set initial position in perpendicular plane (Y-Z plane)
+            photon.position.x = height; // Use height as X coordinate
+            photon.position.y = Math.cos(angle) * radius; // Y becomes the orbital plane
+            photon.position.z = Math.sin(angle) * radius; // Z remains orbital
+
+            // Store photon data
+            photon.userData = {
+                angle: angle,
+                radius: radius,
+                height: height,
+                velocity: new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.06, // Different velocity range
+                    (Math.random() - 0.5) * 0.08,
+                    (Math.random() - 0.5) * 0.06
+                ),
+                orbitalSpeed: 0.03 + Math.random() * 0.06, // Different orbital speed
+                trail: []
+            };
+
+            this.photons2.push(photon);
+            this.scene.add(photon);
+
+            // Create trail for second cluster
+            this.createPhotonTrail2(photon);
+        }
+    }
+    
     createPhotonTrail(photon) {
         TrailManager.createTrail(photon, this.scene, this.photonTrails, {
             color: 0xffff00,
+            opacity: 0.3,
+            maxPoints: 50
+        });
+    }
+    
+    createPhotonTrail2(photon) {
+        TrailManager.createTrail(photon, this.scene, this.photonTrails2, {
+            color: 0x00ffff, // Cyan trails for second cluster
             opacity: 0.3,
             maxPoints: 50
         });
@@ -125,6 +179,7 @@ class GravitationalSphereSimulation {
     }
     
     updatePhotons() {
+        // Update first cluster (yellow photons)
         this.photons.forEach(photon => {
             const userData = photon.userData;
 
@@ -137,7 +192,7 @@ class GravitationalSphereSimulation {
             // Apply velocity to position
             photon.position.add(userData.velocity);
 
-            // Add orbital motion
+            // Add orbital motion (X-Z plane)
             const orbitalForce = PhysicsUtils.calculateOrbitalForce(photon.position, userData.orbitalSpeed);
             userData.velocity.add(orbitalForce);
 
@@ -150,8 +205,43 @@ class GravitationalSphereSimulation {
 
             // Reset photon if it gets too far or too close
             const distance = photon.position.length();
-            if (distance > 11.25 || distance < 1.5) { // Adjusted by factor of 0.75
+            if (distance > 11.25 || distance < 1.5) {
                 this.resetPhoton(photon);
+            }
+        });
+
+        // Update second cluster (cyan photons)
+        this.photons2.forEach(photon => {
+            const userData = photon.userData;
+
+            // Calculate gravitational force
+            const gravitationalForce = this.calculateGravitationalForce(photon);
+
+            // Apply gravitational force to velocity
+            userData.velocity.add(gravitationalForce);
+
+            // Apply velocity to position
+            photon.position.add(userData.velocity);
+
+            // Add orbital motion (Y-Z plane) - perpendicular to first cluster
+            const orbitalForce = new THREE.Vector3(
+                -photon.position.y * userData.orbitalSpeed,
+                photon.position.x * userData.orbitalSpeed,
+                0
+            );
+            userData.velocity.add(orbitalForce);
+
+            // Limit velocity to prevent runaway acceleration
+            userData.velocity = PhysicsUtils.limitVelocity(userData.velocity, 0.4);
+
+            // Add slight oscillation in X direction
+            photon.position.x += Math.sin(Date.now() * 0.001 + userData.angle) * 0.001;
+            TrailManager.updateTrail(photon, this.photonTrails2);
+
+            // Reset photon if it gets too far or too close
+            const distance = photon.position.length();
+            if (distance > 11.25 || distance < 1.5) {
+                this.resetPhoton2(photon);
             }
         });
     }
@@ -170,6 +260,24 @@ class GravitationalSphereSimulation {
             (Math.random() - 0.5) * 0.08,
             (Math.random() - 0.5) * 0.04,
             (Math.random() - 0.5) * 0.08
+        );
+        TrailManager.clearTrail(photon);
+    }
+    
+    resetPhoton2(photon) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 3 + Math.random() * 2.25;
+        const height = (Math.random() - 0.5) * 0.8;
+
+        // Reset position in perpendicular plane (Y-Z plane)
+        photon.position.x = height;
+        photon.position.y = Math.cos(angle) * radius;
+        photon.position.z = Math.sin(angle) * radius;
+
+        photon.userData.velocity.set(
+            (Math.random() - 0.5) * 0.06,
+            (Math.random() - 0.5) * 0.08,
+            (Math.random() - 0.5) * 0.06
         );
         TrailManager.clearTrail(photon);
     }
@@ -277,7 +385,7 @@ class GravitationalSphereSimulation {
     
     updateUI() {
         UIManager.updateUI({
-            photonCount: this.photons.length,
+            photonCount: this.photons.length + this.photons2.length,
             gravitationalConstant: this.gravityParams.gravitationalConstant
         });
     }

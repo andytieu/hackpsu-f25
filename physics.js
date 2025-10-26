@@ -48,7 +48,6 @@ class PhysicsUtils {
         }
         return velocity;
     }
-
     /**
      * Add vertical oscillation to position
      * @param {THREE.Vector3} position - Current position
