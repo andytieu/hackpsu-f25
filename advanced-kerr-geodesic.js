@@ -202,6 +202,12 @@ class AdvancedKerrGeodesic {
      */
     integrateRK45(f, y0, l0, l_max, h_init = 0.1, h_min = 1e-8, h_max = 0.1, 
                     rtol = 1e-10, atol = 1e-13) {
+        // Early exit for very small masses to avoid performance issues
+        if (this.M < 0.1 && l_max > 0.01) {
+            // Scale down integration steps for small masses
+            l_max = Math.min(l_max, 0.01);
+        }
+        
         let y = [...y0];
         let l = l0;
         let h = h_init;

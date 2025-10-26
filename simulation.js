@@ -37,7 +37,7 @@ class GravitationalSphereSimulation {
         this.spacetimeGrid = null;
         
         // Orbital camera parameters
-        this.cameraRadius = 8;
+        this.cameraRadius = 15; // Increased initial camera distance for better overview
         this.cameraAngleX = Math.PI / 3; // 60 degrees
         this.cameraAngleY = 0;
         this.mouseDown = false;
@@ -222,10 +222,18 @@ class GravitationalSphereSimulation {
             photon.position.z = Math.sin(angle) * radius;
             photon.position.y = height;
             
-            // Calculate proper initial velocity for Kerr orbit (tangential to orbit)
+            // Calculate proper initial velocity for Kerr photon orbit
+            // For light, we use null geodesics - velocity should be close to speed of light
             const tangentDirection = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
-            const orbitalVelocity = Math.sqrt(this.gravityParams.mass / radius); // Circular orbit velocity
-            const initialVelocity = tangentDirection.multiplyScalar(orbitalVelocity);
+            
+            // Add small radial and vertical components for more realistic paths
+            const radialComponent = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).multiplyScalar(Math.random() * 0.01);
+            const verticalComponent = new THREE.Vector3(0, Math.random() * 0.1 - 0.05, 0);
+            
+            // Photons travel at speed of light along null geodesics
+            const lightSpeed = 1.0; // Normalized to c=1 in geometric units
+            const tangentialVelocity = tangentDirection.multiplyScalar(lightSpeed);
+            const initialVelocity = tangentialVelocity.add(radialComponent).add(verticalComponent).normalize().multiplyScalar(lightSpeed);
             
             // Store photon data
             photon.userData = {
@@ -265,10 +273,20 @@ class GravitationalSphereSimulation {
             photon.position.y = Math.cos(angle) * radius; // Y becomes the orbital plane
             photon.position.z = Math.sin(angle) * radius; // Z remains orbital
             
-            // Calculate proper initial velocity for Kerr orbit in perpendicular plane
+            // Calculate proper initial velocity for Kerr photon orbit in perpendicular plane
+            // For light, we use null geodesics - velocity should be close to speed of light
             const tangentDirection = new THREE.Vector3(0, -Math.sin(angle), Math.cos(angle));
-            const orbitalVelocity = Math.sqrt(this.gravityParams.mass / radius); // Circular orbit velocity
-            const initialVelocity = tangentDirection.multiplyScalar(orbitalVelocity);
+            
+            // Add small radial and vertical components for more realistic paths
+            const radialComponent = new THREE.Vector3(Math.random() * 0.01 - 0.005, 
+                                                       Math.cos(angle) * Math.random() * 0.01, 
+                                                       Math.sin(angle) * Math.random() * 0.01);
+            const verticalComponent = new THREE.Vector3(Math.random() * 0.1 - 0.05, 0, 0);
+            
+            // Photons travel at speed of light along null geodesics
+            const lightSpeed = 1.0; // Normalized to c=1 in geometric units
+            const tangentialVelocity = tangentDirection.multiplyScalar(lightSpeed);
+            const initialVelocity = tangentialVelocity.add(radialComponent).add(verticalComponent).normalize().multiplyScalar(lightSpeed);
             
             // Store photon data
             photon.userData = {
@@ -313,6 +331,9 @@ class GravitationalSphereSimulation {
     }
     
     updatePhotons() {
+        // Adaptive time step based on mass to improve performance
+        const adaptiveDt = Math.max(0.001, Math.min(0.016, this.gravityParams.mass * 0.016));
+        
         // Update first cluster (yellow photons)
         this.photons.forEach(photon => {
             const userData = photon.userData;
@@ -324,13 +345,13 @@ class GravitationalSphereSimulation {
             }
 
             if (this.gravityParams.useRelativisticPhysics) {
-                // Use Kerr geodesic integration
+                // Use Kerr geodesic integration with adaptive time step
                 const result = KerrGeodesicIntegrator.integrateKerrGeodesic(
                     photon.position,
                     userData.velocity,
                     this.gravityParams.mass,
                     this.gravityParams.spin,
-                    0.016 // ~60 FPS
+                    adaptiveDt
                 );
                 
                 if (result) {
@@ -376,13 +397,13 @@ class GravitationalSphereSimulation {
             }
 
             if (this.gravityParams.useRelativisticPhysics) {
-                // Use Kerr geodesic integration
+                // Use Kerr geodesic integration with adaptive time step
                 const result = KerrGeodesicIntegrator.integrateKerrGeodesic(
                     photon.position,
                     userData.velocity,
                     this.gravityParams.mass,
                     this.gravityParams.spin,
-                    0.016 // ~60 FPS
+                    adaptiveDt
                 );
                 
                 if (result) {
@@ -522,7 +543,7 @@ class GravitationalSphereSimulation {
     onWheel(event) {
         const delta = event.deltaY;
         this.cameraRadius += delta * 0.1;
-        this.cameraRadius = Math.max(2, Math.min(20, this.cameraRadius));
+        this.cameraRadius = Math.max(2, Math.min(100, this.cameraRadius)); // Increased max zoom distance from 20 to 100
         event.preventDefault();
     }
     
@@ -774,17 +795,21 @@ class GravitationalSphereSimulation {
         photon.position.x = Math.cos(angle) * radius;
         photon.position.z = Math.sin(angle) * radius;
         photon.position.y = height;
+        
+        // Calculate proper initial velocity for Kerr photon orbit
+        const tangentDirection = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
+        const radialComponent = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).multiplyScalar(Math.random() * 0.01);
+        const verticalComponent = new THREE.Vector3(0, Math.random() * 0.1 - 0.05, 0);
+        const lightSpeed = 1.0;
+        const tangentialVelocity = tangentDirection.multiplyScalar(lightSpeed);
+        const initialVelocity = tangentialVelocity.add(radialComponent).add(verticalComponent).normalize().multiplyScalar(lightSpeed);
 
         photon.userData = {
             angle: angle,
             radius: radius,
             height: height,
-            velocity: new THREE.Vector3(
-                (Math.random() - 0.5) * 0.08,
-                (Math.random() - 0.5) * 0.04,
-                (Math.random() - 0.5) * 0.08
-            ),
-            orbitalSpeed: 0.04 + Math.random() * 0.08,
+            velocity: initialVelocity,
+            orbitalSpeed: lightSpeed,
             trail: []
         };
 
@@ -809,17 +834,23 @@ class GravitationalSphereSimulation {
         photon.position.x = height;
         photon.position.y = Math.cos(angle) * radius;
         photon.position.z = Math.sin(angle) * radius;
+        
+        // Calculate proper initial velocity for Kerr photon orbit in perpendicular plane
+        const tangentDirection = new THREE.Vector3(0, -Math.sin(angle), Math.cos(angle));
+        const radialComponent = new THREE.Vector3(Math.random() * 0.01 - 0.005, 
+                                                   Math.cos(angle) * Math.random() * 0.01, 
+                                                   Math.sin(angle) * Math.random() * 0.01);
+        const verticalComponent = new THREE.Vector3(Math.random() * 0.1 - 0.05, 0, 0);
+        const lightSpeed = 1.0;
+        const tangentialVelocity = tangentDirection.multiplyScalar(lightSpeed);
+        const initialVelocity = tangentialVelocity.add(radialComponent).add(verticalComponent).normalize().multiplyScalar(lightSpeed);
 
         photon.userData = {
             angle: angle,
             radius: radius,
             height: height,
-            velocity: new THREE.Vector3(
-                (Math.random() - 0.5) * 0.06,
-                (Math.random() - 0.5) * 0.08,
-                (Math.random() - 0.5) * 0.06
-            ),
-            orbitalSpeed: 0.03 + Math.random() * 0.06,
+            velocity: initialVelocity,
+            orbitalSpeed: lightSpeed,
             trail: []
         };
 
