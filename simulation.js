@@ -70,13 +70,8 @@ class GravitationalSphereSimulation {
     }
     
     createGravitationalObject() {
-        // Create red sphere (gravitational object)
-        const sphereGeometry = new THREE.SphereGeometry(1.2, 32, 32);
-        const sphereMaterial = new THREE.MeshLambertMaterial({
-            color: 0xff0000,
-            emissive: 0x220000
-        });
-        this.gravitationalObject = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        // Create invisible gravitational object for physics calculations
+        this.gravitationalObject = new THREE.Object3D();
         this.gravitationalObject.userData = {
             mass: this.gravityParams.mass,
             spin: this.gravityParams.spin
@@ -859,10 +854,6 @@ class GravitationalSphereSimulation {
 
         // Update orbital camera position
         this.updateCameraPosition();
-
-        // Rotate gravitational object
-        this.gravitationalObject.rotation.y += 0.005;
-        this.gravitationalObject.rotation.x += 0.002;
 
         // Update photon physics
         this.updatePhotons();
