@@ -12,9 +12,9 @@ class GravitationalSphereSimulation {
         // Gravitational parameters
         this.gravityParams = {
             mass: 1.0,
-            gravitationalConstant: 0.1,
-            maxPhotons: 15, // Reduced for first cluster
-            maxPhotons2: 15 // Second cluster
+            gravitationalConstant: .01,
+            maxPhotons: 20, // Reduced for first cluster
+            maxPhotons2: 20 // Second cluster
         };
         
         // Arrays for photons and trails
@@ -381,6 +381,149 @@ class GravitationalSphereSimulation {
         UIManager.setupResizeHandler(this.camera, this.renderer);
 
         UIManager.setupKeyboardControls(this.gravityParams);
+        
+        // Setup slider event listeners
+        this.setupSliderControls();
+    }
+    
+    setupSliderControls() {
+        // Photon count slider
+        const photonSlider = document.getElementById('photon-count-slider');
+        const photonValue = document.getElementById('photon-count-value');
+        
+        photonSlider.addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            photonValue.textContent = newCount;
+            this.updatePhotonCount(newCount);
+        });
+        
+        // Gravity slider
+        const gravitySlider = document.getElementById('gravity-slider');
+        const gravityValue = document.getElementById('gravity-value');
+        
+        gravitySlider.addEventListener('input', (e) => {
+            const newGravity = parseFloat(e.target.value);
+            gravityValue.textContent = newGravity.toFixed(2);
+            this.gravityParams.gravitationalConstant = newGravity;
+        });
+        
+        // Mass slider
+        const massSlider = document.getElementById('mass-slider');
+        const massValue = document.getElementById('mass-value');
+        
+        massSlider.addEventListener('input', (e) => {
+            const newMass = parseFloat(e.target.value);
+            massValue.textContent = newMass.toFixed(1);
+            this.gravityParams.mass = newMass;
+        });
+    }
+    
+    updatePhotonCount(newCount) {
+        // Update both clusters to have the same number of photons
+        this.gravityParams.maxPhotons = newCount;
+        this.gravityParams.maxPhotons2 = newCount;
+        
+        // Remove excess photons if reducing count
+        while (this.photons.length > newCount) {
+            const photon = this.photons.pop();
+            this.scene.remove(photon);
+            // Remove corresponding trail
+            const trailIndex = this.photonTrails.findIndex(t => t.userData.photon === photon);
+            if (trailIndex !== -1) {
+                this.scene.remove(this.photonTrails[trailIndex]);
+                this.photonTrails.splice(trailIndex, 1);
+            }
+        }
+        
+        while (this.photons2.length > newCount) {
+            const photon = this.photons2.pop();
+            this.scene.remove(photon);
+            // Remove corresponding trail
+            const trailIndex = this.photonTrails2.findIndex(t => t.userData.photon === photon);
+            if (trailIndex !== -1) {
+                this.scene.remove(this.photonTrails2[trailIndex]);
+                this.photonTrails2.splice(trailIndex, 1);
+            }
+        }
+        
+        // Add photons if increasing count
+        while (this.photons.length < newCount) {
+            this.addSinglePhoton();
+        }
+        
+        while (this.photons2.length < newCount) {
+            this.addSinglePhoton2();
+        }
+    }
+    
+    addSinglePhoton() {
+        const i = this.photons.length;
+        const angle = (i / this.gravityParams.maxPhotons) * Math.PI * 2;
+        const radius = 2.25 + Math.random() * 3;
+        const height = (Math.random() - 0.5) * 1.5;
+
+        const photonGeometry = new THREE.SphereGeometry(0.05, 8, 6);
+        const photonMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffff00,
+            emissive: 0x222200
+        });
+        const photon = new THREE.Mesh(photonGeometry, photonMaterial);
+
+        photon.position.x = Math.cos(angle) * radius;
+        photon.position.z = Math.sin(angle) * radius;
+        photon.position.y = height;
+
+        photon.userData = {
+            angle: angle,
+            radius: radius,
+            height: height,
+            velocity: new THREE.Vector3(
+                (Math.random() - 0.5) * 0.08,
+                (Math.random() - 0.5) * 0.04,
+                (Math.random() - 0.5) * 0.08
+            ),
+            orbitalSpeed: 0.04 + Math.random() * 0.08,
+            trail: []
+        };
+
+        this.photons.push(photon);
+        this.scene.add(photon);
+        this.createPhotonTrail(photon);
+    }
+    
+    addSinglePhoton2() {
+        const i = this.photons2.length;
+        const angle = (i / this.gravityParams.maxPhotons2) * Math.PI * 2;
+        const radius = 2.5 + Math.random() * 2.5;
+        const height = (Math.random() - 0.5) * 0.8;
+
+        const photonGeometry = new THREE.SphereGeometry(0.05, 8, 6);
+        const photonMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            emissive: 0x002222
+        });
+        const photon = new THREE.Mesh(photonGeometry, photonMaterial);
+
+        photon.position.x = height;
+        photon.position.y = Math.cos(angle) * radius;
+        photon.position.z = Math.sin(angle) * radius;
+
+        photon.userData = {
+            angle: angle,
+            radius: radius,
+            height: height,
+            velocity: new THREE.Vector3(
+                (Math.random() - 0.5) * 0.06,
+                (Math.random() - 0.5) * 0.08,
+                (Math.random() - 0.5) * 0.06
+            ),
+            orbitalSpeed: 0.03 + Math.random() * 0.06,
+            trail: []
+        };
+
+        this.photons2.push(photon);
+        this.scene.add(photon);
+        this.createPhotonTrail2(photon);
     }
     
     updateUI() {
