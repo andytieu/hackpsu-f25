@@ -11,10 +11,10 @@ class GravitationalSphereSimulation {
         
         // Gravitational parameters
         this.gravityParams = {
-            mass: 1.0,
+            mass: 3.0,
             gravitationalConstant: 0.1,
-            maxPhotons: 100, 
-            maxPhotons2: 100,
+            maxPhotons: 200, 
+            maxPhotons2: 200,
             useRelativisticPhysics: true, // Enable Kerr physics
             showEventHorizon: true, // Show event horizon
             showErgosphere: true, // Show ergosphere
