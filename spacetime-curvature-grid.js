@@ -11,6 +11,7 @@ class SpacetimeCurvatureGrid {
         this.gridSegments = 20;
         this.gridMesh = null;
         this.intensity = 2.0;
+        this.additionalGrids = [];
         
         this.createGrid();
     }
@@ -123,6 +124,7 @@ class SpacetimeCurvatureGrid {
         grid2.rotation.x = -Math.PI / 2;
         grid2.position.y = 0;
         this.scene.add(grid2);
+        this.additionalGrids.push(grid2);
         
         // Third layer (vertical grid for 3D effect)
         const geometry3 = new THREE.PlaneGeometry(
@@ -142,6 +144,7 @@ class SpacetimeCurvatureGrid {
         grid3.rotation.z = -Math.PI / 2;
         grid3.position.x = -this.gridSize / 2;
         this.scene.add(grid3);
+        this.additionalGrids.push(grid3);
     }
     
     /**
@@ -171,6 +174,11 @@ class SpacetimeCurvatureGrid {
      */
     setVisible(visible) {
         if (this.gridMesh) this.gridMesh.visible = visible;
+        if (this.additionalGrids) {
+            this.additionalGrids.forEach(grid => {
+                grid.visible = visible;
+            });
+        }
     }
     
     /**
@@ -181,6 +189,16 @@ class SpacetimeCurvatureGrid {
             this.scene.remove(this.gridMesh);
             this.gridMesh.geometry.dispose();
             this.gridMesh.material.dispose();
+        }
+        
+        // Dispose additional grids
+        if (this.additionalGrids) {
+            this.additionalGrids.forEach(grid => {
+                this.scene.remove(grid);
+                grid.geometry.dispose();
+                grid.material.dispose();
+            });
+            this.additionalGrids = [];
         }
     }
 }
