@@ -214,7 +214,10 @@ class AdvancedKerrGeodesic {
         const traj = [y];
         let steps = 0;
         
-        while (l < l_max && steps < 500000) {
+        // Limit max steps for performance (was 500000, now 200 for real-time)
+        const MAX_STEPS = 200;
+        
+        while (l < l_max && steps < MAX_STEPS) {
             const result = this.rk45Step(f, l, y, h);
             const tol = atol + rtol * this.vectorNorm(y);
             const accept = (result.err <= tol) || (h <= h_min);
@@ -222,7 +225,10 @@ class AdvancedKerrGeodesic {
             if (accept) {
                 y = result.y;
                 l += h;
-                traj.push([...y]);
+                // Only store every 3rd point to reduce memory
+                if (steps % 3 === 0) {
+                    traj.push([...y]);
+                }
                 steps++;
                 
                 const r_current = y[1];

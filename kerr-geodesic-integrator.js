@@ -19,6 +19,17 @@ class KerrGeodesicIntegrator {
         
         // Convert Three.js vectors to Boyer-Lindquist coordinates (spherical)
         const r = position.length();
+        
+        // Performance optimization: skip geodesic integration if too far from black hole
+        if (r > 20 * mass) {
+            // Use simple linear update for far-away photons
+            const newPosition = position.clone().add(velocity.clone().multiplyScalar(dt));
+            return {
+                position: newPosition,
+                velocity: velocity.clone()
+            };
+        }
+        
         const theta = Math.acos(position.y / r);  // Colatitude
         const phi = Math.atan2(position.z, position.x);  // Azimuth
         
@@ -44,10 +55,10 @@ class KerrGeodesicIntegrator {
         const y0 = [0.0, r, theta, phi, 1.0, vr, vtheta, vphi];
         
         // Integrate geodesic using advanced solver
-        // Use a larger lambda_max to ensure photons actually move
+        // Use a balanced lambda_max for performance and visual clarity
         const f = (lambda, y) => geodesic.geodesicEquations(lambda, y);
-        const l_max = Math.max(0.5, dt * 50); // Increased lambda range for faster movement and better visual clarity
-        const traj = geodesic.integrateRK45(f, y0, 0.0, l_max, dt, 1e-8, 0.2);
+        const l_max = Math.max(0.15, dt * 20); // Optimized for performance
+        const traj = geodesic.integrateRK45(f, y0, 0.0, l_max, dt * 0.5, 1e-6, 0.1);
         
         // Get final state
         const lastState = traj[traj.length - 1];
