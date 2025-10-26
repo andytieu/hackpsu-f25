@@ -87,19 +87,21 @@
 
 <body>
     <div id="info">
-        <h3>Relativistic Gravitational Sphere</h3>
-        <p>Photons orbiting around a massive object</p>
+        <h3>Kerr Black Hole Simulation</h3>
+        <p>Photons orbiting around a rotating black hole</p>
         <p>Photons: <span id="photon-count">0</span></p>
         <p>Gravitational Force: <span id="gravity-strength">1.0</span></p>
         <p>Event Horizon: <span id="event-horizon-radius">2.0</span></p>
-        <p>Photon Sphere: <span id="photon-sphere-radius">3.0</span></p>
+        <p>Ergosphere: <span id="ergosphere-radius">2.0</span></p>
         <p>ISCO: <span id="isco-radius">6.0</span></p>
+        <p>Photon Sphere: <span id="photon-sphere-radius">3.0</span></p>
+        <p>Frame Dragging: <span id="frame-dragging-rate">0.00</span></p>
     </div>
 
     <div id="controls">
         <p><strong>Controls:</strong></p>
-        <p>• Mouse Drag: Orbit camera around sphere</p>
-        <p>• Mouse Wheel: Zoom in/out</p>
+        <p>Mouse Drag: Orbit camera around sphere</p>
+        <p>Mouse Wheel: Zoom in/out</p>
 
         <div class="slider-container">
             <label class="slider-label" for="photon-count-slider">Photons per Cluster:</label>
@@ -120,8 +122,14 @@
         </div>
 
         <div class="slider-container">
+            <label class="slider-label" for="spin-slider">Black Hole Spin:</label>
+            <input type="range" id="spin-slider" class="slider" min="-0.99" max="0.99" step="0.01" value="0.0">
+            <span class="slider-value" id="spin-value">0.00</span>
+        </div>
+
+        <div class="slider-container">
             <label class="slider-label">
-                <input type="checkbox" id="relativistic-toggle" checked> Use Relativistic Physics
+                <input type="checkbox" id="relativistic-toggle" checked> Use Kerr Physics
             </label>
         </div>
 
@@ -131,10 +139,38 @@
             </label>
         </div>
 
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="ergosphere-toggle" checked> Show Ergosphere
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="starfield-toggle" checked> Show Background Stars
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="einstein-ring-toggle" checked> Show Einstein Ring
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="multiple-images-toggle"> Show Multiple Images
+            </label>
+        </div>
+
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <script src="physics.js"></script>
         <script src="relativistic-physics.js"></script>
+        <script src="kerr-physics.js"></script>
         <script src="geodesic-integrator.js"></script>
+        <script src="kerr-geodesic-integrator.js"></script>
+        <script src="gravitational-lensing.js"></script>
+        <script src="background-starfield.js"></script>
         <script src="trails.js"></script>
         <script src="ui.js"></script>
         <script src="simulation.js"></script>

@@ -13,10 +13,12 @@ class GravitationalSphereSimulation {
         this.gravityParams = {
             mass: 1.0,
             gravitationalConstant: 0.1,
-            maxPhotons: 15, // Reduced for first cluster
-            maxPhotons2: 15, // Second cluster
-            useRelativisticPhysics: true, // Enable relativistic physics
-            showEventHorizon: true // Show event horizon
+            maxPhotons: 15, 
+            maxPhotons2: 15,
+            useRelativisticPhysics: true, // Enable Kerr physics
+            showEventHorizon: true, // Show event horizon
+            showErgosphere: true, // Show ergosphere
+            spin: 0.0 // Kerr spin parameter (-1 to 1)
         };
         
         // Arrays for photons and trails
@@ -24,6 +26,9 @@ class GravitationalSphereSimulation {
         this.photonTrails = [];
         this.photons2 = []; // Second cluster
         this.photonTrails2 = []; // Second cluster trails
+        
+        // Background starfield for gravitational lensing
+        this.backgroundStarfield = null;
         
         // Orbital camera parameters
         this.cameraRadius = 8;
@@ -43,6 +48,7 @@ class GravitationalSphereSimulation {
         this.setupLighting();
         this.createPhotons();
         this.createPhotons2();
+        this.createBackgroundStarfield();
         this.setupCamera();
         this.setupOrbitalCamera();
         this.setupEventListeners();
@@ -72,9 +78,9 @@ class GravitationalSphereSimulation {
     }
     
     createEventHorizon() {
-        const rs = RelativisticPhysics.schwarzschildRadius(this.gravityParams.mass);
+        const rs = KerrPhysics.kerrEventHorizon(this.gravityParams.mass, this.gravityParams.spin);
         
-        // Create event horizon sphere (slightly larger than Schwarzschild radius)
+        // Create event horizon sphere
         const eventHorizonGeometry = new THREE.SphereGeometry(rs, 32, 32);
         const eventHorizonMaterial = new THREE.MeshBasicMaterial({
             color: 0x000000,
@@ -86,21 +92,13 @@ class GravitationalSphereSimulation {
         this.eventHorizon = new THREE.Mesh(eventHorizonGeometry, eventHorizonMaterial);
         this.scene.add(this.eventHorizon);
         
-        // Create photon sphere visualization
-        const photonSphereRadius = RelativisticPhysics.photonSphereRadius(this.gravityParams.mass);
-        const photonSphereGeometry = new THREE.SphereGeometry(photonSphereRadius, 32, 32);
-        const photonSphereMaterial = new THREE.MeshBasicMaterial({
-            color: 0x444444,
-            transparent: true,
-            opacity: 0.1,
-            wireframe: true
-        });
+        // Create ergosphere visualization
+        if (this.gravityParams.showErgosphere) {
+            this.createErgosphere();
+        }
         
-        this.photonSphere = new THREE.Mesh(photonSphereGeometry, photonSphereMaterial);
-        this.scene.add(this.photonSphere);
-        
-        // Create ISCO visualization
-        const iscoRadius = RelativisticPhysics.iscoRadius(this.gravityParams.mass);
+        // Create Kerr ISCO visualization
+        const iscoRadius = KerrPhysics.kerrISCO(this.gravityParams.mass, this.gravityParams.spin, true);
         const iscoGeometry = new THREE.SphereGeometry(iscoRadius, 32, 32);
         const iscoMaterial = new THREE.MeshBasicMaterial({
             color: 0x666666,
@@ -111,6 +109,64 @@ class GravitationalSphereSimulation {
         
         this.isco = new THREE.Mesh(iscoGeometry, iscoMaterial);
         this.scene.add(this.isco);
+        
+        // Create Kerr photon sphere visualization
+        const photonSphereRadius = KerrPhysics.kerrPhotonSphere(this.gravityParams.mass, this.gravityParams.spin, true);
+        const photonSphereGeometry = new THREE.SphereGeometry(photonSphereRadius, 32, 32);
+        const photonSphereMaterial = new THREE.MeshBasicMaterial({
+            color: 0x444444,
+            transparent: true,
+            opacity: 0.1,
+            wireframe: true
+        });
+        
+        this.photonSphere = new THREE.Mesh(photonSphereGeometry, photonSphereMaterial);
+        this.scene.add(this.photonSphere);
+    }
+    
+    createErgosphere() {
+        // Create ergosphere as a distorted sphere
+        const ergosphereGeometry = new THREE.SphereGeometry(1, 32, 32);
+        
+        // Modify vertices to create ergosphere shape
+        const vertices = ergosphereGeometry.attributes.position.array;
+        for (let i = 0; i < vertices.length; i += 3) {
+            const x = vertices[i];
+            const y = vertices[i + 1];
+            const z = vertices[i + 2];
+            
+            const r = Math.sqrt(x * x + y * y + z * z);
+            const theta = Math.acos(y / r);
+            
+            const ergosphereRadius = KerrPhysics.kerrErgosphere(this.gravityParams.mass, this.gravityParams.spin, theta);
+            const scale = ergosphereRadius / r;
+            
+            vertices[i] *= scale;
+            vertices[i + 1] *= scale;
+            vertices[i + 2] *= scale;
+        }
+        
+        ergosphereGeometry.attributes.position.needsUpdate = true;
+        
+        const ergosphereMaterial = new THREE.MeshBasicMaterial({
+            color: 0x220022,
+            transparent: true,
+            opacity: 0.1,
+            wireframe: true
+        });
+        
+        this.ergosphere = new THREE.Mesh(ergosphereGeometry, ergosphereMaterial);
+        this.scene.add(this.ergosphere);
+    }
+    
+    createBackgroundStarfield() {
+        // Create background starfield for gravitational lensing
+        this.backgroundStarfield = new BackgroundStarfield(
+            this.scene,
+            new THREE.Vector3(0, 0, 0), // Black hole position
+            this.gravityParams.mass,
+            this.gravityParams.spin
+        );
     }
     
     setupLighting() {
@@ -225,7 +281,7 @@ class GravitationalSphereSimulation {
     
     calculateGravitationalForce(photon) {
         if (this.gravityParams.useRelativisticPhysics) {
-            return RelativisticPhysics.calculateRelativisticForce(photon, this.gravityParams);
+            return KerrPhysics.calculateKerrForce(photon, this.gravityParams);
         } else {
             return PhysicsUtils.calculateGravitationalForce(photon, this.gravityParams);
         }
@@ -237,17 +293,18 @@ class GravitationalSphereSimulation {
             const userData = photon.userData;
 
             // Check if photon is captured by event horizon
-            if (RelativisticPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass)) {
+            if (KerrPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass, this.gravityParams.spin)) {
                 this.resetPhoton(photon);
                 return;
             }
 
             if (this.gravityParams.useRelativisticPhysics) {
-                // Use relativistic geodesic integration
-                const result = GeodesicIntegrator.integrateGeodesic(
+                // Use Kerr geodesic integration
+                const result = KerrGeodesicIntegrator.integrateKerrGeodesic(
                     photon.position,
                     userData.velocity,
                     this.gravityParams.mass,
+                    this.gravityParams.spin,
                     0.016 // ~60 FPS
                 );
                 
@@ -288,17 +345,18 @@ class GravitationalSphereSimulation {
             const userData = photon.userData;
 
             // Check if photon is captured by event horizon
-            if (RelativisticPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass)) {
+            if (KerrPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass, this.gravityParams.spin)) {
                 this.resetPhoton2(photon);
                 return;
             }
 
             if (this.gravityParams.useRelativisticPhysics) {
-                // Use relativistic geodesic integration
-                const result = GeodesicIntegrator.integrateGeodesic(
+                // Use Kerr geodesic integration
+                const result = KerrGeodesicIntegrator.integrateKerrGeodesic(
                     photon.position,
                     userData.velocity,
                     this.gravityParams.mass,
+                    this.gravityParams.spin,
                     0.016 // ~60 FPS
                 );
                 
@@ -511,6 +569,17 @@ class GravitationalSphereSimulation {
             this.updateEventHorizon();
         });
         
+        // Spin slider
+        const spinSlider = document.getElementById('spin-slider');
+        const spinValue = document.getElementById('spin-value');
+        
+        spinSlider.addEventListener('input', (e) => {
+            const newSpin = parseFloat(e.target.value);
+            spinValue.textContent = newSpin.toFixed(2);
+            this.gravityParams.spin = newSpin;
+            this.updateEventHorizon();
+        });
+        
         // Relativistic physics toggle
         const relativisticToggle = document.getElementById('relativistic-toggle');
         relativisticToggle.addEventListener('change', (e) => {
@@ -523,25 +592,89 @@ class GravitationalSphereSimulation {
             this.gravityParams.showEventHorizon = e.target.checked;
             this.toggleEventHorizon();
         });
+        
+        // Ergosphere toggle
+        const ergosphereToggle = document.getElementById('ergosphere-toggle');
+        ergosphereToggle.addEventListener('change', (e) => {
+            this.gravityParams.showErgosphere = e.target.checked;
+            this.toggleErgosphere();
+        });
+        
+        // Background starfield toggle
+        const starfieldToggle = document.getElementById('starfield-toggle');
+        starfieldToggle.addEventListener('change', (e) => {
+            if (this.backgroundStarfield) {
+                this.backgroundStarfield.setVisible(e.target.checked);
+            }
+        });
+        
+        // Einstein ring toggle
+        const einsteinRingToggle = document.getElementById('einstein-ring-toggle');
+        einsteinRingToggle.addEventListener('change', (e) => {
+            if (this.backgroundStarfield) {
+                this.backgroundStarfield.einsteinRings.forEach(ring => {
+                    ring.visible = e.target.checked;
+                });
+            }
+        });
+        
+        // Multiple images toggle
+        const multipleImagesToggle = document.getElementById('multiple-images-toggle');
+        multipleImagesToggle.addEventListener('change', (e) => {
+            if (this.backgroundStarfield) {
+                if (e.target.checked) {
+                    // Add multiple images for a few stars
+                    for (let i = 0; i < Math.min(5, this.backgroundStarfield.stars.length); i++) {
+                        this.backgroundStarfield.addMultipleImages(i);
+                    }
+                } else {
+                    this.backgroundStarfield.removeMultipleImages();
+                }
+            }
+        });
     }
     
     updateEventHorizon() {
         if (this.eventHorizon) {
-            const rs = RelativisticPhysics.schwarzschildRadius(this.gravityParams.mass);
+            const rs = KerrPhysics.kerrEventHorizon(this.gravityParams.mass, this.gravityParams.spin);
             this.eventHorizon.geometry.dispose();
             this.eventHorizon.geometry = new THREE.SphereGeometry(rs, 32, 32);
         }
         
         if (this.photonSphere) {
-            const photonSphereRadius = RelativisticPhysics.photonSphereRadius(this.gravityParams.mass);
+            const photonSphereRadius = KerrPhysics.kerrPhotonSphere(this.gravityParams.mass, this.gravityParams.spin, true);
             this.photonSphere.geometry.dispose();
             this.photonSphere.geometry = new THREE.SphereGeometry(photonSphereRadius, 32, 32);
         }
         
         if (this.isco) {
-            const iscoRadius = RelativisticPhysics.iscoRadius(this.gravityParams.mass);
+            const iscoRadius = KerrPhysics.kerrISCO(this.gravityParams.mass, this.gravityParams.spin, true);
             this.isco.geometry.dispose();
             this.isco.geometry = new THREE.SphereGeometry(iscoRadius, 32, 32);
+        }
+        
+        if (this.ergosphere) {
+            this.scene.remove(this.ergosphere);
+            this.createErgosphere();
+        }
+        
+        // Update background starfield
+        if (this.backgroundStarfield) {
+            this.backgroundStarfield.updateBlackHole(this.gravityParams.mass, this.gravityParams.spin);
+        }
+    }
+    
+    toggleErgosphere() {
+        if (this.gravityParams.showErgosphere) {
+            if (!this.ergosphere) {
+                this.createErgosphere();
+            } else {
+                this.ergosphere.visible = true;
+            }
+        } else {
+            if (this.ergosphere) {
+                this.ergosphere.visible = false;
+            }
         }
     }
     
@@ -677,14 +810,21 @@ class GravitationalSphereSimulation {
             gravitationalConstant: this.gravityParams.gravitationalConstant
         });
         
-        // Update relativistic information
-        const rs = RelativisticPhysics.schwarzschildRadius(this.gravityParams.mass);
-        const photonSphereRadius = RelativisticPhysics.photonSphereRadius(this.gravityParams.mass);
-        const iscoRadius = RelativisticPhysics.iscoRadius(this.gravityParams.mass);
+        // Update Kerr information
+        const rs = KerrPhysics.kerrEventHorizon(this.gravityParams.mass, this.gravityParams.spin);
+        const r_ergosphere = KerrPhysics.kerrErgosphere(this.gravityParams.mass, this.gravityParams.spin, Math.PI/2);
+        const photonSphereRadius = KerrPhysics.kerrPhotonSphere(this.gravityParams.mass, this.gravityParams.spin, true);
+        const iscoRadius = KerrPhysics.kerrISCO(this.gravityParams.mass, this.gravityParams.spin, true);
+        
+        // Calculate frame dragging rate at a reference distance
+        const referenceDistance = 3.0;
+        const frameDraggingRate = KerrPhysics.frameDraggingAngularVelocity(referenceDistance, Math.PI/2, this.gravityParams.mass, this.gravityParams.spin);
         
         document.getElementById('event-horizon-radius').textContent = rs.toFixed(2);
+        document.getElementById('ergosphere-radius').textContent = r_ergosphere.toFixed(2);
         document.getElementById('photon-sphere-radius').textContent = photonSphereRadius.toFixed(2);
         document.getElementById('isco-radius').textContent = iscoRadius.toFixed(2);
+        document.getElementById('frame-dragging-rate').textContent = frameDraggingRate.toFixed(3);
     }
     
     animate() {
@@ -699,7 +839,12 @@ class GravitationalSphereSimulation {
 
         // Update photon physics
         this.updatePhotons();
-
+        
+        // Update gravitational lensing effects
+        if (this.backgroundStarfield) {
+            this.backgroundStarfield.updateBlackHolePosition(this.gravitationalObject.position);
+        }
+        
         // Update UI
         this.updateUI();
 
