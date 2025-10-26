@@ -18,7 +18,7 @@ class GravitationalSphereSimulation {
             useRelativisticPhysics: true, // Enable Kerr physics
             showEventHorizon: true, // Show event horizon
             showErgosphere: true, // Show ergosphere
-            spin: 0.0 // Kerr spin parameter (-1 to 1)
+            spin: 0.5 // Kerr spin parameter (-1 to 1)
         };
         
         // Arrays for photons and trails
@@ -29,6 +29,12 @@ class GravitationalSphereSimulation {
         
         // Background starfield for gravitational lensing
         this.backgroundStarfield = null;
+        
+        // Accretion disk renderer
+        this.accretionDiskRenderer = null;
+        
+        // Spacetime curvature grid
+        this.spacetimeGrid = null;
         
         // Orbital camera parameters
         this.cameraRadius = 8;
@@ -49,6 +55,8 @@ class GravitationalSphereSimulation {
         this.createPhotons();
         this.createPhotons2();
         this.createBackgroundStarfield();
+        this.createAccretionDiskRenderer();
+        this.createSpacetimeGrid();
         this.setupCamera();
         this.setupOrbitalCamera();
         this.setupEventListeners();
@@ -69,6 +77,10 @@ class GravitationalSphereSimulation {
             emissive: 0x220000
         });
         this.gravitationalObject = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        this.gravitationalObject.userData = {
+            mass: this.gravityParams.mass,
+            spin: this.gravityParams.spin
+        };
         this.scene.add(this.gravitationalObject);
         
         // Create event horizon visualization
@@ -125,6 +137,11 @@ class GravitationalSphereSimulation {
     }
     
     createErgosphere() {
+        // Don't create ergosphere if spin is 0 (no rotation)
+        if (Math.abs(this.gravityParams.spin) < 0.01) {
+            return;
+        }
+        
         // Create ergosphere as a distorted sphere
         const ergosphereGeometry = new THREE.SphereGeometry(1, 32, 32);
         
@@ -149,10 +166,11 @@ class GravitationalSphereSimulation {
         ergosphereGeometry.attributes.position.needsUpdate = true;
         
         const ergosphereMaterial = new THREE.MeshBasicMaterial({
-            color: 0x220022,
+            color: 0x440044,
             transparent: true,
-            opacity: 0.1,
-            wireframe: true
+            opacity: 0.3,
+            wireframe: true,
+            side: THREE.DoubleSide
         });
         
         this.ergosphere = new THREE.Mesh(ergosphereGeometry, ergosphereMaterial);
@@ -167,6 +185,16 @@ class GravitationalSphereSimulation {
             this.gravityParams.mass,
             this.gravityParams.spin
         );
+    }
+    
+    createAccretionDiskRenderer() {
+        // Create accretion disk with halos
+        this.accretionDiskRenderer = new AccretionDiskRenderer(this.scene, this.gravitationalObject, null);
+    }
+    
+    createSpacetimeGrid() {
+        // Create spacetime curvature grid
+        this.spacetimeGrid = new SpacetimeCurvatureGrid(this.scene, this.gravitationalObject);
     }
     
     setupLighting() {
@@ -566,6 +594,7 @@ class GravitationalSphereSimulation {
             const newMass = parseFloat(e.target.value);
             massValue.textContent = newMass.toFixed(1);
             this.gravityParams.mass = newMass;
+            this.gravitationalObject.userData.mass = newMass;
             this.updateEventHorizon();
         });
         
@@ -577,6 +606,7 @@ class GravitationalSphereSimulation {
             const newSpin = parseFloat(e.target.value);
             spinValue.textContent = newSpin.toFixed(2);
             this.gravityParams.spin = newSpin;
+            this.gravitationalObject.userData.spin = newSpin;
             this.updateEventHorizon();
         });
         
@@ -595,10 +625,12 @@ class GravitationalSphereSimulation {
         
         // Ergosphere toggle
         const ergosphereToggle = document.getElementById('ergosphere-toggle');
-        ergosphereToggle.addEventListener('change', (e) => {
-            this.gravityParams.showErgosphere = e.target.checked;
-            this.toggleErgosphere();
-        });
+        if (ergosphereToggle) {
+            ergosphereToggle.addEventListener('change', (e) => {
+                this.gravityParams.showErgosphere = e.target.checked;
+                this.toggleErgosphere();
+            });
+        }
         
         // Background starfield toggle
         const starfieldToggle = document.getElementById('starfield-toggle');
@@ -608,30 +640,25 @@ class GravitationalSphereSimulation {
             }
         });
         
-        // Einstein ring toggle
-        const einsteinRingToggle = document.getElementById('einstein-ring-toggle');
-        einsteinRingToggle.addEventListener('change', (e) => {
-            if (this.backgroundStarfield) {
-                this.backgroundStarfield.einsteinRings.forEach(ring => {
-                    ring.visible = e.target.checked;
-                });
-            }
-        });
-        
-        // Multiple images toggle
-        const multipleImagesToggle = document.getElementById('multiple-images-toggle');
-        multipleImagesToggle.addEventListener('change', (e) => {
-            if (this.backgroundStarfield) {
-                if (e.target.checked) {
-                    // Add multiple images for a few stars
-                    for (let i = 0; i < Math.min(5, this.backgroundStarfield.stars.length); i++) {
-                        this.backgroundStarfield.addMultipleImages(i);
-                    }
-                } else {
-                    this.backgroundStarfield.removeMultipleImages();
+        // Accretion disk toggle
+        const accretionDiskToggle = document.getElementById('accretion-disk-toggle');
+        if (accretionDiskToggle) {
+            accretionDiskToggle.addEventListener('change', (e) => {
+                if (this.accretionDiskRenderer) {
+                    this.accretionDiskRenderer.setVisible(e.target.checked);
                 }
-            }
-        });
+            });
+        }
+        
+        // Spacetime grid toggle
+        const spacetimeGridToggle = document.getElementById('spacetime-grid-toggle');
+        if (spacetimeGridToggle) {
+            spacetimeGridToggle.addEventListener('change', (e) => {
+                if (this.spacetimeGrid) {
+                    this.spacetimeGrid.setVisible(e.target.checked);
+                }
+            });
+        }
     }
     
     updateEventHorizon() {
@@ -843,6 +870,16 @@ class GravitationalSphereSimulation {
         // Update gravitational lensing effects
         if (this.backgroundStarfield) {
             this.backgroundStarfield.updateBlackHolePosition(this.gravitationalObject.position);
+        }
+        
+        // Update accretion disk
+        if (this.accretionDiskRenderer) {
+            this.accretionDiskRenderer.updateRotation();
+        }
+        
+        // Update spacetime grid
+        if (this.spacetimeGrid) {
+            this.spacetimeGrid.update();
         }
         
         // Update UI

@@ -123,8 +123,8 @@
 
         <div class="slider-container">
             <label class="slider-label" for="spin-slider">Black Hole Spin:</label>
-            <input type="range" id="spin-slider" class="slider" min="-0.99" max="0.99" step="0.01" value="0.0">
-            <span class="slider-value" id="spin-value">0.00</span>
+            <input type="range" id="spin-slider" class="slider" min="-0.99" max="0.99" step="0.01" value="0.5">
+            <span class="slider-value" id="spin-value">0.50</span>
         </div>
 
         <div class="slider-container">
@@ -153,13 +153,13 @@
 
         <div class="slider-container">
             <label class="slider-label">
-                <input type="checkbox" id="einstein-ring-toggle" checked> Show Einstein Ring
+                <input type="checkbox" id="accretion-disk-toggle" checked> Show Accretion Disk
             </label>
         </div>
 
         <div class="slider-container">
             <label class="slider-label">
-                <input type="checkbox" id="multiple-images-toggle"> Show Multiple Images
+                <input type="checkbox" id="spacetime-grid-toggle" checked> Show Spacetime Grid
             </label>
         </div>
 
@@ -171,6 +171,8 @@
         <script src="kerr-geodesic-integrator.js"></script>
         <script src="gravitational-lensing.js"></script>
         <script src="background-starfield.js"></script>
+        <script src="accretion-disk-renderer.js"></script>
+        <script src="spacetime-curvature-grid.js"></script>
         <script src="trails.js"></script>
         <script src="ui.js"></script>
         <script src="simulation.js"></script>
