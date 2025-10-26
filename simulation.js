@@ -203,105 +203,167 @@ class GravitationalSphereSimulation {
     }
     
     createPhotons() {
-        for (let i = 0; i < this.gravityParams.maxPhotons; i++) {
-            // Random starting position around the sphere
-            const angle = (i / this.gravityParams.maxPhotons) * Math.PI * 2;
-            const radius = 2.25 + Math.random() * 3; // Decreased by factor of 0.75
-            const height = (Math.random() - 0.5) * 1.5; // Decreased by factor of 0.75
-
-            // Create photon geometry (small sphere)
+        const M = this.gravityParams.mass;
+        const a = this.gravityParams.spin;
+        
+        // Calculate critical values
+        const r_h = KerrPhysics.kerrEventHorizon(M, a);  // Event horizon
+        const r_photon = KerrPhysics.kerrPhotonSphere(M, a);  // Photon sphere
+        
+        // Divide photons into three categories
+        const n_total = this.gravityParams.maxPhotons;
+        const n_plunging = Math.floor(n_total * 0.2);   // 20% plunging
+        const n_photon_sphere = Math.floor(n_total * 0.3);  // 30% at photon sphere
+        const n_distant = n_total - n_plunging - n_photon_sphere;  // 50% distant
+        
+        for (let i = 0; i < n_total; i++) {
+            let r, theta, phi, category;
+            
+            // Assign photon to a category based on position
+            if (i < n_plunging) {
+                // Region 1: Plunging photons (just outside event horizon)
+                category = 'plunging';
+                r = r_h * 1.5 + Math.random() * r_h * 0.5;
+                theta = Math.PI / 2;  // Equatorial plane
+                phi = (i / n_plunging) * Math.PI * 2;
+            } else if (i < n_plunging + n_photon_sphere) {
+                // Region 2: Photon sphere region
+                category = 'orbiting';
+                r = r_photon + (Math.random() - 0.5) * 0.3 * M;
+                theta = Math.PI / 2 + (Math.random() - 0.5) * 0.3;
+                phi = ((i - n_plunging) / n_photon_sphere) * Math.PI * 2;
+            } else {
+                // Region 3: Distant photons for lensing effect
+                category = 'lensing';
+                r = 8 * M + Math.random() * 8 * M;
+                theta = Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 3;
+                phi = ((i - n_plunging - n_photon_sphere) / n_distant) * Math.PI * 2;
+            }
+            
+            // Convert to Cartesian coordinates
+            const x = r * Math.sin(theta) * Math.cos(phi);
+            const y = r * Math.cos(theta);
+            const z = r * Math.sin(theta) * Math.sin(phi);
+            
+            // Create photon
             const photonGeometry = new THREE.SphereGeometry(0.05, 8, 6);
+            
+            // Color based on category
+            let color = 0xffff00; // Default yellow
+            if (category === 'plunging') color = 0xff0000;  // Red
+            else if (category === 'orbiting') color = 0xffff00;  // Yellow
+            else if (category === 'lensing') color = 0x00ff00;  // Green
+            
             const photonMaterial = new THREE.MeshBasicMaterial({
-                color: 0xffff00,
-                emissive: 0x222200
+                color: color,
+                emissive: color >> 1,
+                transparent: true,
+                opacity: 0.9
             });
             const photon = new THREE.Mesh(photonGeometry, photonMaterial);
-
-            // Set initial position around black hole in orbital plane
-            photon.position.x = Math.cos(angle) * radius;
-            photon.position.z = Math.sin(angle) * radius;
-            photon.position.y = height;
             
-            // Calculate proper initial velocity for Kerr photon orbit
-            // For light, we use null geodesics - velocity should be close to speed of light
-            const tangentDirection = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
+            photon.position.set(x, y, z);
             
-            // Add small radial and vertical components for more realistic paths
-            const radialComponent = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).multiplyScalar(Math.random() * 0.01);
-            const verticalComponent = new THREE.Vector3(0, Math.random() * 0.1 - 0.05, 0);
+            // Calculate initial velocity with INWARD radial component
+            const posDirection = photon.position.clone().normalize();
+            const tangentDirection = new THREE.Vector3(-Math.sin(phi), 0, Math.cos(phi));
             
-            // Photons travel at speed of light along null geodesics
-            const lightSpeed = 1.0; // Normalized to c=1 in geometric units
-            const tangentialVelocity = tangentDirection.multiplyScalar(lightSpeed);
-            const initialVelocity = tangentialVelocity.add(radialComponent).add(verticalComponent).normalize().multiplyScalar(lightSpeed);
+            // Strong inward radial component (photons fall toward black hole)
+            const radialInward = posDirection.multiplyScalar(-0.8);  // 80% inward
+            const tangential = tangentDirection.multiplyScalar(0.6);  // 60% tangential
+            const vertical = new THREE.Vector3(0, (Math.random() - 0.5) * 0.2, 0);  // Some vertical
+            
+            const initialVelocity = radialInward.add(tangential).add(vertical).normalize();
             
             // Store photon data
             photon.userData = {
-                angle: angle,
-                radius: radius,
-                height: height,
+                category: category,
                 velocity: initialVelocity,
-                orbitalSpeed: orbitalVelocity,
-                trail: []
+                trail: [],
+                nOrbits: 0,
+                captured: false,
+                escaped: false,
+                closestApproach: r
             };
 
             this.photons.push(photon);
             this.scene.add(photon);
-
-            // Create trail
             this.createPhotonTrail(photon);
         }
     }
     
     createPhotons2() {
-        for (let i = 0; i < this.gravityParams.maxPhotons2; i++) {
-            // Create photons in a perpendicular orbital plane (around Y-axis)
-            const angle = (i / this.gravityParams.maxPhotons2) * Math.PI * 2;
-            const radius = 2.5 + Math.random() * 2.5; // Similar radius range
-            const height = (Math.random() - 0.5) * 0.8; // Smaller height variation
-
-            // Create photon geometry (small sphere) - different color for second cluster
+        const M = this.gravityParams.mass;
+        const a = this.gravityParams.spin;
+        const r_h = KerrPhysics.kerrEventHorizon(M, a);
+        const r_photon = KerrPhysics.kerrPhotonSphere(M, a);
+        
+        const n_total = this.gravityParams.maxPhotons2;
+        const n_plunging = Math.floor(n_total * 0.2);
+        const n_photon_sphere = Math.floor(n_total * 0.3);
+        const n_distant = n_total - n_plunging - n_photon_sphere;
+        
+        for (let i = 0; i < n_total; i++) {
+            let r, theta, phi, category;
+            
+            if (i < n_plunging) {
+                category = 'plunging';
+                r = r_h * 1.5 + Math.random() * r_h * 0.5;
+                theta = Math.PI / 2;
+                phi = (i / n_plunging) * Math.PI * 2 + Math.PI; // Offset by PI for second cluster
+            } else if (i < n_plunging + n_photon_sphere) {
+                category = 'orbiting';
+                r = r_photon + (Math.random() - 0.5) * 0.3 * M;
+                theta = Math.PI / 2 + (Math.random() - 0.5) * 0.3;
+                phi = ((i - n_plunging) / n_photon_sphere) * Math.PI * 2 + Math.PI;
+            } else {
+                category = 'lensing';
+                r = 8 * M + Math.random() * 8 * M;
+                theta = Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 3;
+                phi = ((i - n_plunging - n_photon_sphere) / n_distant) * Math.PI * 2 + Math.PI;
+            }
+            
+            const x = r * Math.sin(theta) * Math.cos(phi);
+            const y = r * Math.cos(theta);
+            const z = r * Math.sin(theta) * Math.sin(phi);
+            
             const photonGeometry = new THREE.SphereGeometry(0.05, 8, 6);
+            let color = 0x00ffff; // Cyan for second cluster
+            if (category === 'plunging') color = 0xff0000;
+            else if (category === 'orbiting') color = 0xffff00;
+            else if (category === 'lensing') color = 0x00ff00;
+            
             const photonMaterial = new THREE.MeshBasicMaterial({
-                color: 0x00ffff, // Cyan color for second cluster
-                emissive: 0x002222
+                color: color,
+                emissive: color >> 1,
+                transparent: true,
+                opacity: 0.9
             });
             const photon = new THREE.Mesh(photonGeometry, photonMaterial);
-
-            // Set initial position in perpendicular plane (Y-Z plane)
-            photon.position.x = height; // Use height as X coordinate
-            photon.position.y = Math.cos(angle) * radius; // Y becomes the orbital plane
-            photon.position.z = Math.sin(angle) * radius; // Z remains orbital
             
-            // Calculate proper initial velocity for Kerr photon orbit in perpendicular plane
-            // For light, we use null geodesics - velocity should be close to speed of light
-            const tangentDirection = new THREE.Vector3(0, -Math.sin(angle), Math.cos(angle));
+            photon.position.set(x, y, z);
             
-            // Add small radial and vertical components for more realistic paths
-            const radialComponent = new THREE.Vector3(Math.random() * 0.01 - 0.005, 
-                                                       Math.cos(angle) * Math.random() * 0.01, 
-                                                       Math.sin(angle) * Math.random() * 0.01);
-            const verticalComponent = new THREE.Vector3(Math.random() * 0.1 - 0.05, 0, 0);
+            const posDirection = photon.position.clone().normalize();
+            const tangentDirection = new THREE.Vector3(-Math.sin(phi), 0, Math.cos(phi));
             
-            // Photons travel at speed of light along null geodesics
-            const lightSpeed = 1.0; // Normalized to c=1 in geometric units
-            const tangentialVelocity = tangentDirection.multiplyScalar(lightSpeed);
-            const initialVelocity = tangentialVelocity.add(radialComponent).add(verticalComponent).normalize().multiplyScalar(lightSpeed);
+            const radialInward = posDirection.multiplyScalar(-0.8);
+            const tangential = tangentDirection.multiplyScalar(0.6);
+            const vertical = new THREE.Vector3(0, (Math.random() - 0.5) * 0.2, 0);
             
-            // Store photon data
+            const initialVelocity = radialInward.add(tangential).add(vertical).normalize();
+            
             photon.userData = {
-                angle: angle,
-                radius: radius,
-                height: height,
+                category: category,
                 velocity: initialVelocity,
-                orbitalSpeed: orbitalVelocity,
-                trail: []
+                trail: [],
+                nOrbits: 0,
+                captured: false,
+                escaped: false,
+                closestApproach: r
             };
-
+            
             this.photons2.push(photon);
             this.scene.add(photon);
-
-            // Create trail for second cluster
             this.createPhotonTrail2(photon);
         }
     }
@@ -331,21 +393,38 @@ class GravitationalSphereSimulation {
     }
     
     updatePhotons() {
-        // Adaptive time step based on mass to improve performance
-        const adaptiveDt = Math.max(0.001, Math.min(0.016, this.gravityParams.mass * 0.016));
+        const M = this.gravityParams.mass;
+        const r_h = KerrPhysics.kerrEventHorizon(M, this.gravityParams.spin);
+        const r_photon = KerrPhysics.kerrPhotonSphere(M, this.gravityParams.spin);
         
-        // Update first cluster (yellow photons)
+        // Use appropriate time steps for photon geodesics
+        // Smaller dt for accuracy, but not so small that photons don't move
+        const adaptiveDt = this.gravityParams.mass * 0.01; // Increased time step for better visual clarity
+        
+        // Update first cluster
         this.photons.forEach(photon => {
             const userData = photon.userData;
-
+            const r = photon.position.length();
+            
             // Check if photon is captured by event horizon
-            if (KerrPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass, this.gravityParams.spin)) {
-                this.resetPhoton(photon);
+            if (r < r_h * 1.01 || userData.captured) {
+                userData.captured = true;
+                photon.visible = false;
                 return;
+            }
+            
+            // Check if escaped
+            if (r > 30 * M) {
+                userData.escaped = true;
+                // For classical physics, reset the photon to keep it in view
+                if (!this.gravityParams.useRelativisticPhysics) {
+                    this.resetPhoton(photon);
+                    return;
+                }
             }
 
             if (this.gravityParams.useRelativisticPhysics) {
-                // Use Kerr geodesic integration with adaptive time step
+                // Use Kerr geodesic integration
                 const result = KerrGeodesicIntegrator.integrateKerrGeodesic(
                     photon.position,
                     userData.velocity,
@@ -355,44 +434,91 @@ class GravitationalSphereSimulation {
                 );
                 
                 if (result) {
+                    const oldR = photon.position.length();
                     photon.position.copy(result.position);
                     userData.velocity.copy(result.velocity);
                     
+                    const newR = photon.position.length();
+                    
+                    // Track closest approach
+                    if (newR < userData.closestApproach) {
+                        userData.closestApproach = newR;
+                    }
+                    
+                    // Detect orbiting behavior (crossing phi = 0 multiple times)
+                    const oldPhi = Math.atan2(photon.position.z, photon.position.x);
+                    if (Math.abs(oldPhi - Math.atan2(result.position.z, result.position.x)) > Math.PI) {
+                        userData.nOrbits++;
+                    }
+                    
                     // Apply relativistic velocity limit
                     userData.velocity = RelativisticPhysics.limitRelativisticVelocity(userData.velocity);
+                    
+                    // Fade out photons approaching event horizon
+                    const fadeDistance = r_h * 2;
+                    if (r < fadeDistance && r > r_h) {
+                        const fadeFactor = (r - r_h) / (fadeDistance - r_h);
+                        photon.material.opacity = fadeFactor;
+                    }
                 } else {
-                    // Unstable integration - reset photon
-                    this.resetPhoton(photon);
+                    // Unstable integration
+                    userData.captured = true;
+                    photon.visible = false;
                     return;
                 }
             } else {
-                // Classical physics (original code)
+                // Classical physics with orbital constraints
                 const gravitationalForce = this.calculateGravitationalForce(photon);
+                
+                // Apply gravity
                 userData.velocity.add(gravitationalForce);
+                
+                // Add orbital velocity to maintain stable orbits
+                const pos = photon.position.clone();
+                const perpToRadial = new THREE.Vector3(-pos.z, 0, pos.x).normalize();
+                const orbitalSpeed = Math.sqrt(this.gravityParams.mass * this.gravityParams.gravitationalConstant / pos.length());
+                const orbitalVelocity = perpToRadial.multiplyScalar(orbitalSpeed);
+                
+                // Blend velocities
+                userData.velocity.lerp(orbitalVelocity, 0.5);
+                
+                // Update position
                 photon.position.add(userData.velocity);
                 
-                const orbitalForce = PhysicsUtils.calculateOrbitalForce(photon.position, userData.orbitalSpeed);
-                userData.velocity.add(orbitalForce);
-                userData.velocity = PhysicsUtils.limitVelocity(userData.velocity, 0.4);
-                photon.position.y = PhysicsUtils.addVerticalOscillation(photon.position, userData.angle, 0.001);
+                // Limit velocity
+                if (userData.velocity.length() > 2.0) {
+                    userData.velocity.normalize().multiplyScalar(2.0);
+                }
             }
 
             TrailManager.updateTrail(photon, this.photonTrails);
-
-            // Reset photon if it gets too far
-            const distance = photon.position.length();
-            if (distance > 20) {
-                this.resetPhoton(photon);
-            }
         });
 
         // Update second cluster (cyan photons)
         this.photons2.forEach(photon => {
             const userData = photon.userData;
 
+            const r2 = photon.position.length();
+            
+            if (r2 < r_h * 1.01 || userData.captured) {
+                userData.captured = true;
+                photon.visible = false;
+                return;
+            }
+            
+            if (r2 > 30 * M) {
+                userData.escaped = true;
+                // For classical physics, reset the photon to keep it in view
+                if (!this.gravityParams.useRelativisticPhysics) {
+                    this.resetPhoton2(photon);
+                    return;
+                }
+            }
+            
             // Check if photon is captured by event horizon
             if (KerrPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass, this.gravityParams.spin)) {
-                this.resetPhoton2(photon);
+                userData.captured = true;
+                photon.visible = false;
                 return;
             }
 
@@ -418,28 +544,31 @@ class GravitationalSphereSimulation {
                     return;
                 }
             } else {
-                // Classical physics (original code)
+                // Classical physics with orbital constraints
                 const gravitationalForce = this.calculateGravitationalForce(photon);
+                
+                // Apply gravity
                 userData.velocity.add(gravitationalForce);
+                
+                // Add orbital velocity to maintain stable orbits
+                const pos = photon.position.clone();
+                const perpToRadial = new THREE.Vector3(-pos.z, 0, pos.x).normalize();
+                const orbitalSpeed = Math.sqrt(this.gravityParams.mass * this.gravityParams.gravitationalConstant / pos.length());
+                const orbitalVelocity = perpToRadial.multiplyScalar(orbitalSpeed);
+                
+                // Blend velocities
+                userData.velocity.lerp(orbitalVelocity, 0.5);
+                
+                // Update position
                 photon.position.add(userData.velocity);
                 
-                const orbitalForce = new THREE.Vector3(
-                    -photon.position.y * userData.orbitalSpeed,
-                    photon.position.x * userData.orbitalSpeed,
-                    0
-                );
-                userData.velocity.add(orbitalForce);
-                userData.velocity = PhysicsUtils.limitVelocity(userData.velocity, 0.4);
-                photon.position.x += Math.sin(Date.now() * 0.001 + userData.angle) * 0.001;
+                // Limit velocity
+                if (userData.velocity.length() > 2.0) {
+                    userData.velocity.normalize().multiplyScalar(2.0);
+                }
             }
 
             TrailManager.updateTrail(photon, this.photonTrails2);
-
-            // Reset photon if it gets too far
-            const distance = photon.position.length();
-            if (distance > 20) {
-                this.resetPhoton2(photon);
-            }
         });
     }
     
