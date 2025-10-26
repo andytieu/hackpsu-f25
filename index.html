@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Gravitational Red Sphere with Orbiting Photons</title>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            font-size: 12px;
+        }
+
+        .slider-container {
+            margin: 10px 0;
+        }
+
+        .slider-label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .slider {
+            width: 200px;
+            height: 20px;
+            border-radius: 10px;
+            background: #333;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .slider:hover {
+            opacity: 1;
+        }
+
+        .slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+            border: none;
+        }
+
+        .slider-value {
+            display: inline-block;
+            margin-left: 10px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">
+        <h3>Kerr Black Hole Simulation</h3>
+        <p>Photons orbiting around a rotating black hole</p>
+        <p>Photons: <span id="photon-count">0</span></p>
+        <p>Gravitational Force: <span id="gravity-strength">1.0</span></p>
+        <p>Event Horizon: <span id="event-horizon-radius">2.0</span> M</p>
+        <p>Ergosphere: <span id="ergosphere-radius">2.0</span> M</p>
+        <p>ISCO: <span id="isco-radius">6.0</span> M</p>
+        <p>Photon Sphere: <span id="photon-sphere-radius">3.0</span> M</p>
+        <p>Frame Dragging: <span id="frame-dragging-rate">0.00</span> rad/s</p>
+    </div>
+
+    <div id="controls">
+        <p><strong>Controls:</strong></p>
+        <p>Mouse Drag: Orbit camera around sphere</p>
+        <p>Mouse Wheel: Zoom in/out</p>
+
+        <div class="slider-container">
+            <label class="slider-label" for="photon-count-slider">Photons per Cluster:</label>
+            <input type="range" id="photon-count-slider" class="slider" min="5" max="1000" value="200">
+            <span class="slider-value" id="photon-count-value">200</span>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label" for="gravity-slider">Gravitational Force:</label>
+            <input type="range" id="gravity-slider" class="slider" min="0.01" max="1.0" step="0.01" value="0.1">
+            <span class="slider-value" id="gravity-value">0.10</span>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label" for="mass-slider">Sphere Mass:</label>
+            <input type="range" id="mass-slider" class="slider" min="0.1" max="3.0" step="0.1" value="3.0">
+            <span class="slider-value" id="mass-value">3.0</span>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label" for="spin-slider">Black Hole Spin:</label>
+            <input type="range" id="spin-slider" class="slider" min="-0.99" max="0.99" step="0.01" value="0.5">
+            <span class="slider-value" id="spin-value">0.50</span>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="relativistic-toggle" checked> Use Kerr Physics
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="event-horizon-toggle" checked> Show Event Horizon
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="ergosphere-toggle" checked> Show Ergosphere
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="starfield-toggle" checked> Show Background Stars
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="accretion-disk-toggle" checked> Show Accretion Disk
+            </label>
+        </div>
+
+        <div class="slider-container">
+            <label class="slider-label">
+                <input type="checkbox" id="spacetime-grid-toggle" checked> Show Spacetime Grid
+            </label>
+        </div>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script src="physics.js"></script>
+        <script src="relativistic-physics.js"></script>
+        <script src="kerr-physics.js"></script>
+        <script src="geodesic-integrator.js"></script>
+        <script src="kerr-geodesic-integrator.js"></script>
+        <script src="advanced-kerr-geodesic.js"></script>
+        <script src="gravitational-lensing.js"></script>
+        <script src="background-starfield.js"></script>
+        <script src="accretion-disk-renderer.js"></script>
+        <script src="spacetime-curvature-grid.js"></script>
+        <script src="trails.js"></script>
+        <script src="ui.js"></script>
+        <script src="simulation.js"></script>
+</body>
+
+</html>
