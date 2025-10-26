@@ -237,19 +237,3 @@ def plot_geodesics(results, plot_radius=PLOT_RADIUS):
 if __name__ == "__main__":
     print("Simulating", N_PHOTONS, "photons with IMG_EXTENT=", IMG_EXTENT)
     results = simulate_photons(N_PHOTONS)
-    
-    # DEBUGGING: Check what happened to each photon
-    print("\nPhoton trajectory summary:")
-    for i, res in enumerate(results):
-        traj = res['traj']
-        r_start = traj[0, 1]
-        r_end = traj[-1, 1]
-        n_points = len(traj)
-        r_min = np.min(traj[:, 1])
-        mask = (traj[:, 1] < PLOT_RADIUS)
-        n_visible = np.sum(mask)
-        print(f"Photon {i}: α={res['alpha']:6.2f}, β={res['beta']:6.2f} | "
-              f"r: {r_start:.1f}→{r_end:.1f} | min_r={r_min:.2f} | "
-              f"pts={n_points} | visible_pts={n_visible}")
-    
-    plot_geodesics(results)
