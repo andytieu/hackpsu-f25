@@ -20,6 +20,15 @@ class GravitationalSphereSimulation {
         this.photons = [];
         this.photonTrails = [];
         
+        // Orbital camera parameters
+        this.cameraRadius = 8;
+        this.cameraAngleX = Math.PI / 3; // 60 degrees
+        this.cameraAngleY = 0;
+        this.mouseDown = false;
+        this.lastMouseX = 0;
+        this.lastMouseY = 0;
+        this.autoRotate = false;
+        
         this.init();
     }
     
@@ -29,6 +38,7 @@ class GravitationalSphereSimulation {
         this.setupLighting();
         this.createPhotons();
         this.setupCamera();
+        this.setupOrbitalCamera();
         this.setupEventListeners();
         this.animate();
     }
@@ -136,8 +146,6 @@ class GravitationalSphereSimulation {
 
             // Add slight vertical oscillation
             photon.position.y = PhysicsUtils.addVerticalOscillation(photon.position, userData.angle, 0.001);
-
-            // Update trail
             TrailManager.updateTrail(photon, this.photonTrails);
 
             // Reset photon if it gets too far or too close
@@ -151,8 +159,8 @@ class GravitationalSphereSimulation {
     
     resetPhoton(photon) {
         const angle = Math.random() * Math.PI * 2;
-        const radius = 3 + Math.random() * 2.25; // Decreased by factor of 0.75
-        const height = (Math.random() - 0.5) * 1.5; // Decreased by factor of 0.75
+        const radius = 3 + Math.random() * 2.25; 
+        const height = (Math.random() - 0.5) * 1.5;
 
         photon.position.x = Math.cos(angle) * radius;
         photon.position.z = Math.sin(angle) * radius;
@@ -167,16 +175,103 @@ class GravitationalSphereSimulation {
     }
     
     setupCamera() {
-        // Position camera
+        // Initial camera position (will be overridden by orbital camera)
         this.camera.position.set(0, 3, 8);
         this.camera.lookAt(0, 0, 0);
     }
     
+    setupOrbitalCamera() {
+        // Set initial camera position using spherical coordinates
+        this.updateCameraPosition();
+        
+        // Add mouse event listeners for orbital control
+        this.renderer.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
+        this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        this.renderer.domElement.addEventListener('mouseup', () => this.onMouseUp());
+        this.renderer.domElement.addEventListener('wheel', (e) => this.onWheel(e));
+        
+        // Touch events for mobile
+        this.renderer.domElement.addEventListener('touchstart', (e) => this.onTouchStart(e));
+        this.renderer.domElement.addEventListener('touchmove', (e) => this.onTouchMove(e));
+        this.renderer.domElement.addEventListener('touchend', () => this.onTouchEnd());
+    }
+    
+    // Orbital camera methods
+    updateCameraPosition() {
+        const x = this.cameraRadius * Math.sin(this.cameraAngleX) * Math.cos(this.cameraAngleY);
+        const y = this.cameraRadius * Math.cos(this.cameraAngleX);
+        const z = this.cameraRadius * Math.sin(this.cameraAngleX) * Math.sin(this.cameraAngleY);
+        
+        this.camera.position.set(x, y, z);
+        this.camera.lookAt(0, 0, 0);
+    }
+    
+    onMouseDown(event) {
+        this.mouseDown = true;
+        this.lastMouseX = event.clientX;
+        this.lastMouseY = event.clientY;
+        event.preventDefault();
+    }
+    
+    onMouseMove(event) {
+        if (!this.mouseDown) return;
+        
+        const deltaX = event.clientX - this.lastMouseX;
+        const deltaY = event.clientY - this.lastMouseY;
+        
+        this.cameraAngleY -= deltaX * 0.01;
+        this.cameraAngleX += deltaY * 0.01;
+        
+        // Clamp vertical angle to prevent camera flipping
+        this.cameraAngleX = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraAngleX));
+        
+        this.lastMouseX = event.clientX;
+        this.lastMouseY = event.clientY;
+        
+        event.preventDefault();
+    }
+    
+    onMouseUp() {
+        this.mouseDown = false;
+    }
+    
+    onWheel(event) {
+        const delta = event.deltaY;
+        this.cameraRadius += delta * 0.1;
+        this.cameraRadius = Math.max(2, Math.min(20, this.cameraRadius));
+        event.preventDefault();
+    }
+    
+    onTouchStart(event) {
+        if (event.touches.length === 1) {
+            this.mouseDown = true;
+            this.lastMouseX = event.touches[0].clientX;
+            this.lastMouseY = event.touches[0].clientY;
+        }
+    }
+    
+    onTouchMove(event) {
+        if (!this.mouseDown || event.touches.length !== 1) return;
+        
+        const deltaX = event.touches[0].clientX - this.lastMouseX;
+        const deltaY = event.touches[0].clientY - this.lastMouseY;
+        
+        this.cameraAngleY -= deltaX * 0.01;
+        this.cameraAngleX += deltaY * 0.01;
+        
+        this.cameraAngleX = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraAngleX));
+        
+        this.lastMouseX = event.touches[0].clientX;
+        this.lastMouseY = event.touches[0].clientY;
+    }
+    
+    onTouchEnd() {
+        this.mouseDown = false;
+    }
+    
     setupEventListeners() {
-        // Handle window resize
         UIManager.setupResizeHandler(this.camera, this.renderer);
 
-        // Keyboard controls
         UIManager.setupKeyboardControls(this.gravityParams);
     }
     
@@ -189,6 +284,9 @@ class GravitationalSphereSimulation {
     
     animate() {
         requestAnimationFrame(() => this.animate());
+
+        // Update orbital camera position
+        this.updateCameraPosition();
 
         // Rotate gravitational object
         this.gravitationalObject.rotation.y += 0.005;
