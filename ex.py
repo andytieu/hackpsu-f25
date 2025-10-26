@@ -1,16 +1,30 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import math
+import matplotlib.pyplot as plt
+from PIL import Image, ImageFilter, ImageOps
+import time
 
+try:
+    import cupy as cp
+    GPU_AVAILABLE = True
+except Exception:
+    cp = None
+    GPU_AVAILABLE = False
+
+try:
+    from numba import njit
+    NUMBA_AVAILABLE = True
+except Exception:
+    NUMBA_AVAILABLE = False
 M = 1.0            
-a = 0.5            
-N_PHOTONS = 50
+a = 0.5         
+N_PHOTONS = 1000
 LAMBDA_MAX = 200.0
 H_INIT = .1      
 RTOL = 1e-10     
 ATOL = 1e-13        
 H_MIN = 1e-8 
-H_MAX = .1
+H_MAX = .5
 
 R_OBS = 50.0  
 THETA_OBS = np.pi/2 
@@ -18,6 +32,22 @@ IMG_EXTENT = 5.0
 
 PLOT_RADIUS = 20.0
 
+WIDTH = 400
+HEIGHT = 400
+SUPERSAMPLES = 1           
+ACCRETION_INNER = 1.2 * (M + math.sqrt(max(0, M * M - a * a))) 
+ACCRETION_OUTER = 40.0
+DISK_INCLINATION = 0.0     
+DISK_EMISSIVITY_INDEX = 3.0    
+FILL_BLACK_FOR_PLUNGED = True
+
+def map_intensity_to_orange(intensity):
+    # intensity: non-negative scalar
+    t = np.clip(np.log10(1 + intensity) / 3.0, 0.0, 1.0)
+    r = 0.95 * (0.3 + 0.7 * t)     # stronger red as t increases
+    g = 0.55 * (0.3 + 0.7 * (1 - 0.2 * t))
+    b = 0.2 * (0.3 + 0.7 * (1 - t))
+    return np.clip(np.array([r, g, b]), 0.0, 1.0)
 
 def kerr_metric(r, theta):
     sigma = r*r + (a * np.cos(theta))**2
@@ -242,7 +272,7 @@ def find_radial_root_bisection(r_lo, r_hi, E, Lz, Q, a_local=a, M_local=M, tol=1
 
 def classify_photons(results, r_obs=R_OBS):
     r_h = M + np.sqrt(max(0.0, M*M - a*a))
-    r_escape_thresh = 1.5 * r_obs  # choose a large enough radius
+    r_escape_thresh = 1.5 * r_obs  
     for entry in results:
         traj = entry['traj']
         rs = traj[:,1]
@@ -255,33 +285,39 @@ def classify_photons(results, r_obs=R_OBS):
     return results
 
 
-def simulate_photons(N_photons=N_PHOTONS, img_extent=IMG_EXTENT):
-    n = int(np.ceil(np.sqrt(N_photons)))
-    alphas = np.linspace(-img_extent, img_extent, n)
-    betas  = np.linspace(-img_extent, img_extent, n)
-    
+def simulate_photons(N_photons=N_PHOTONS, img_extent=IMG_EXTENT, grid_sampling='stratified'):
+    n_side = int(np.ceil(np.sqrt(N_photons)))
+    alphas = np.linspace(-img_extent, img_extent, n_side)
+    betas  = np.linspace(-img_extent, img_extent, n_side)
     coords = []
-    for b in betas:
-        for a_val in alphas:
-            if len(coords) < N_photons:
+    rng = np.random.default_rng(12345)
+    for i,b in enumerate(betas):
+        for j,a_val in enumerate(alphas):
+            if len(coords) >= N_photons:
+                break
+            if grid_sampling == 'random':
+                coords.append(((a_val + rng.uniform(-img_extent/n_side, img_extent/n_side)),
+                               (b + rng.uniform(-img_extent/n_side, img_extent/n_side))))
+            else:
                 coords.append((a_val, b))
-
     results = []
+    count = 0
+    t0 = time.time()
     for (alpha, beta) in coords:
         y0, consts = image_plane_to_initial_state(alpha, beta)
-        E  = consts['E_cons']
-        Lz = consts['Lz']
-        Q  = consts['Q']
+        E  = consts['E_cons']; Lz = consts['Lz']; Q = consts['Q']
         r_initial = y0[1]
-        r_turn = find_radial_root_bisection(1.001*M, r_initial, E, Lz, Q)
-        entry = {'alpha': alpha, 'beta': beta, 'consts': consts}
+        r_turn = find_radial_root_bisection(1.0001 * M, r_initial, E, Lz, Q) if r_initial > 1.0001*M else None
+        entry = {'alpha': float(alpha), 'beta': float(beta), 'consts': consts}
         if r_turn is not None:
-            entry['predicted_turn'] = r_turn
+            entry['predicted_turn'] = float(r_turn)
 
-        entry['traj'] = integrate_rk45(lambda l, yy: geodesic_equations(l, yy, M, a),
-                                    y0, 0.0, LAMBDA_MAX)
+        traj = integrate_rk45(lambda l, yy: geodesic_equations(l, yy, M, a), y0, 0.0, LAMBDA_MAX)
+        entry['traj'] = traj
         results.append(entry)
-
+        count += 1
+        if count % 2000 == 0:
+            print(f"Shot {count}/{len(coords)} rays. Time elapsed: {time.time()-t0:.1f}s")
     return results
 
 
@@ -369,69 +405,99 @@ def validate_and_fix_entry(entry, null_tol=1e-5, cons_tol=1e-3):
     return entry, 'ok', report
 
 
-def find_asymptotic_index(traj):
-    return -1 
+def redshift_factor_emitter_to_obs(k_at_emitter_contra, emitter_u_contra, r_em, th_em):
+    g_em = kerr_metric(r_em, th_em)
+    k_cov = g_em @ k_at_emitter_contra
+    denom = - float(emitter_u_contra @ k_cov)
+    if denom <= 0 or not np.isfinite(denom):
+        denom = 1.0
+    return denom
 
+def disk_emissivity(r_em, r_in=ACCRETION_INNER, r_out=ACCRETION_OUTER, p=DISK_EMISSIVITY_INDEX):
+    if r_em <= r_in:
+        return 1.0e6
+    if r_em > r_out:
+        return 0.0
+    return (r_em**(-p))
 
-def asymptotic_sky_direction(pt):
-    return {'theta': np.pi/2, 'phi': 0.0}
+def integrate_radiative_transfer_along_traj(entry):
+    traj = entry['traj']
+    consts = entry.get('consts', {})
+    E_cons = consts.get('E_cons', 1.0)
+    total_I = 0.0
+    tau = 0.0
+ 
+    for i in range(len(traj)-1):
+        r1 = float(traj[i,1]); th1 = float(traj[i,2])
+        r2 = float(traj[i+1,1]); th2 = float(traj[i+1,2])
+        r_mid = 0.5*(r1 + r2); th_mid = 0.5*(th1 + th2)
+  
+        if (ACCRETION_INNER <= r_mid <= ACCRETION_OUTER) and (abs(th_mid - np.pi/2) < 0.2):
 
+            dl = math.sqrt((r2-r1)**2 + (r_mid*(th2-th1))**2)
 
-def redshift_and_intensity(E_cons, k_contra, r, theta):
-    return 1.0, 0.0, 1.0, float(E_cons)
+            Omega = 1.0 / (r_mid**1.5 + a) if r_mid>0 else 0.0
+            u_disk = np.array([1.0, 0.0, 0.0, Omega])
+            g_em = kerr_metric(r_mid, th_mid)
+            norm_sq = float(u_disk @ (g_em @ u_disk))
+            if norm_sq < 0:
+                A = 1.0 / math.sqrt(-norm_sq)
+            else:
+                A = 1.0
+            u_disk = A * u_disk
+            k_contra = traj[i, 4:8]
+            denom = redshift_factor_emitter_to_obs(k_contra, u_disk, r_mid, th_mid)
+            gfactor = max(1e-9, float(E_cons) / denom)
+            j = disk_emissivity(r_mid)
 
+            alpha = 1e-6 * (r_mid**(-1.0))
 
-def default_background_sampler(theta, phi):
-    return np.array([0.0, 0.0, 0.0], dtype=float)
+            dI = (gfactor**3) * j * math.exp(-tau) * dl
+            total_I += dI
+            tau += alpha * dl
+    return total_I
 
-
-def apply_redshift_rgb(rgb, g_factor):
-    intensity_scale = max(0.0, g_factor**3)
-    return np.clip(rgb * intensity_scale, 0.0,1.0)
-
-
-def build_image_from_results(results,width,height, img_extent=IMG_EXTENT, background_sampler=default_background_sampler,supersamples=1,fill_black_for_plunged=True):
-    img = np.zeros((height,width,3),dtype=np.float32)
-    coords = [(float(r['alpha']), float(r['beta'])) for r in results]
-    alphas = sorted(set([c[0] for c in coords]))
-    betas  = sorted(set([c[1] for c in coords]))
-    keymap = {(float(e['alpha']), float(e['beta'])): e for e in results}
-    
-    def alpha_to_x(a): return int(np.clip(((a + img_extent)/(2*img_extent)) * (width-1),0, width-1))
-    def beta_to_y(b): return int(np.clip((1 - ((b+img_extent) / (2*img_extent)))*(height-1), 0, height -1))
-    
+def build_image_from_results_rt(results, width=WIDTH, height=HEIGHT, img_extent=IMG_EXTENT, fill_black_for_plunged=FILL_BLACK_FOR_PLUNGED):
+    img = np.zeros((height, width, 3), dtype=float)
     count = np.zeros((height, width), dtype=int)
-    accum = np.zeros((height, width, 3), dtype=float)
-
+    def alpha_to_x(a): return int(np.clip(((a + img_extent)/(2*img_extent)) * (width-1), 0, width-1))
+    def beta_to_y(b): return int(np.clip((1 - ((b + img_extent) / (2*img_extent))) * (height-1), 0, height-1))
     for entry in results:
         x = alpha_to_x(entry['alpha'])
         y = beta_to_y(entry['beta'])
-        outcome = entry.get('outcome', 'other')
+        outcome = entry.get('outcome','other')
         if outcome == 'plunged':
-            color = np.array([0.0,0.0,0.0], dtype=float) if fill_black_for_plunged else np.zeros(3)
+            color = np.array([0.0,0.0,0.0])
         elif outcome == 'escaped':
-            color = default_background_sampler(np.pi/2,0.0)
+            color = np.array([0.01,0.02,0.06])
         else:
-            color = np.array([0.05,0.08,0.2], dtype=float)
-        accum[y,x,:] += color
-        count[y,x] += 1
-    
-    nonzero = count > 0
-    img[nonzero,:,:] = (accum[nonzero,:,:].reshape(-1,3) / count[nonzero].reshape(-1,1)).reshape(accum[nonzero,:,:].shape)
+            I = integrate_radiative_transfer_along_traj(entry)
+            color = map_intensity_to_orange(I)
+        img[y, x, :] += color
+        count[y, x] += 1
+    mask = count > 0
+    img[mask, :] = img[mask, :] / count[mask].reshape(-1,1)
     img = np.clip(img, 0.0, 1.0)
+    img = img ** (1.0/2.2)
     return img
 
-def bl_to_cartesian(r, th, ph):
-    x = r * np.sin(th) * np.cos(ph)
-    y = r * np.sin(th) * np.sin(ph)
-    z = r * np.cos(th)
-    return np.array([x,y,z])
-
+def postprocess_image(img, bloom_radius=6, bloom_strength=0.7, gamma=1.0):
+    im8 = (np.clip(img, 0.0, 1.0) * 255).astype(np.uint8)
+    pil = Image.fromarray(im8)
+    blurred = pil.filter(ImageFilter.GaussianBlur(radius=bloom_radius))
+    blended = Image.blend(pil, blurred, alpha=bloom_strength)
+    arr = np.asarray(blended).astype(np.float32)/255.0
+    arr = np.clip(arr ** (1.0/gamma), 0.0, 1.0)
+    arr = np.clip(arr * np.array([1.02, 0.95, 0.85]), 0.0, 1.0)
+    out = (arr*255).astype(np.uint8)
+    return Image.fromarray(out)
 
 if __name__ == "__main__":
+    print("GPU available (CuPy):", GPU_AVAILABLE)
+    print("Numba available:", NUMBA_AVAILABLE)
     print("Simulating", N_PHOTONS, "photons with IMG_EXTENT=", IMG_EXTENT)
     results = simulate_photons(N_PHOTONS)
-    
+    classified = classify_photons(results)
     def classify_and_report(results, r_h=None, r_obs=R_OBS, r_escape_thresh=0.9*R_OBS):
         if r_h is None:
             r_h = M + np.sqrt(max(0.0, M*M - a*a))
@@ -452,17 +518,13 @@ if __name__ == "__main__":
             classified.append((res, outcome))
         print("Outcome counts:", stats)
         return classified
-
     classified = classify_and_report(results)
-    
     plt.figure(figsize=(8,8))
     ax = plt.gca()
     r_h = M + np.sqrt(max(0.0, M*M - a*a))
     ax.add_artist(plt.Circle((0,0), r_h, color='k', label='Event Horizon'))
-    
     colors = {'plunged':'tab:red', 'escaped':'tab:green', 'other':'tab:blue'}
     labels_added = set()
-    
     for res, outcome in classified:
         traj = res['traj']
         r = traj[:,1]
@@ -474,7 +536,6 @@ if __name__ == "__main__":
         if label:
             labels_added.add(outcome)
         plt.plot(x[mask], y[mask], linewidth=0.8, color=colors[outcome], alpha=0.8, label=label)
-    
     plt.xlabel("x (M)")
     plt.ylabel("y (M)")
     plt.title(f"Photon geodesics colored by outcome (a={a})")
@@ -483,4 +544,13 @@ if __name__ == "__main__":
     plt.ylim(-PLOT_RADIUS, PLOT_RADIUS)
     plt.grid(True, alpha=0.3)
     plt.legend()
+    plt.show()
+
+    img = build_image_from_results_rt(results, width=WIDTH, height=HEIGHT, img_extent=IMG_EXTENT)
+    out_pil = postprocess_image(img, bloom_radius=6, bloom_strength=0.6, gamma=1.0)
+    out_pil.save("bh_interstellar_orange.png")
+    print("Saved bh_interstellar_orange.png")
+    plt.figure(figsize=(6,6))
+    plt.imshow(out_pil)
+    plt.axis('off')
     plt.show()
