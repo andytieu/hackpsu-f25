@@ -217,22 +217,23 @@ class GravitationalSphereSimulation {
             });
             const photon = new THREE.Mesh(photonGeometry, photonMaterial);
 
-            // Set initial position
+            // Set initial position around black hole in orbital plane
             photon.position.x = Math.cos(angle) * radius;
             photon.position.z = Math.sin(angle) * radius;
             photon.position.y = height;
-
+            
+            // Calculate proper initial velocity for Kerr orbit (tangential to orbit)
+            const tangentDirection = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
+            const orbitalVelocity = Math.sqrt(this.gravityParams.mass / radius); // Circular orbit velocity
+            const initialVelocity = tangentDirection.multiplyScalar(orbitalVelocity);
+            
             // Store photon data
             photon.userData = {
                 angle: angle,
                 radius: radius,
                 height: height,
-                velocity: new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.08,
-                    (Math.random() - 0.5) * 0.04,
-                    (Math.random() - 0.5) * 0.08
-                ),
-                orbitalSpeed: 0.04 + Math.random() * 0.08,
+                velocity: initialVelocity,
+                orbitalSpeed: orbitalVelocity,
                 trail: []
             };
 
@@ -263,18 +264,19 @@ class GravitationalSphereSimulation {
             photon.position.x = height; // Use height as X coordinate
             photon.position.y = Math.cos(angle) * radius; // Y becomes the orbital plane
             photon.position.z = Math.sin(angle) * radius; // Z remains orbital
-
+            
+            // Calculate proper initial velocity for Kerr orbit in perpendicular plane
+            const tangentDirection = new THREE.Vector3(0, -Math.sin(angle), Math.cos(angle));
+            const orbitalVelocity = Math.sqrt(this.gravityParams.mass / radius); // Circular orbit velocity
+            const initialVelocity = tangentDirection.multiplyScalar(orbitalVelocity);
+            
             // Store photon data
             photon.userData = {
                 angle: angle,
                 radius: radius,
                 height: height,
-                velocity: new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.06, // Different velocity range
-                    (Math.random() - 0.5) * 0.08,
-                    (Math.random() - 0.5) * 0.06
-                ),
-                orbitalSpeed: 0.03 + Math.random() * 0.06, // Different orbital speed
+                velocity: initialVelocity,
+                orbitalSpeed: orbitalVelocity,
                 trail: []
             };
 
