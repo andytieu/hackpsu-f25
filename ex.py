@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from mpi4py import MPI
 
 M = 1.0            
 a = 0.5            
-N_PHOTONS = 150
+N_PHOTONS = 5
 LAMBDA_MAX = 150.0
 H_INIT = 0.01        
 RTOL = 1e-6          
@@ -189,25 +190,44 @@ def image_plane_to_initial_state(alpha, beta, r_obs=R_OBS, theta_obs=THETA_OBS, 
     return y0
 
 
-def simulate_photons(N_photons=N_PHOTONS, img_extent=IMG_EXTENT):
-    n = int(np.ceil(np.sqrt(N_photons)))
-    alphas = np.linspace(-img_extent, img_extent, n)
-    betas  = np.linspace(-img_extent, img_extent, n)
-    
-    coords = []
-    for b in betas:
-        for a in alphas:
-            if len(coords) < N_photons:
-                coords.append((a, b))
+def simulate_single_photon(alpha, beta):
+    y0 = image_plane_to_initial_state(alpha, beta)
+    traj = integrate_rk45(lambda l, yy: geodesic_equations(l, yy, M, a),
+                          y0, 0.0, LAMBDA_MAX)
+    return {'alpha':alpha, 'beta':beta, 'traj':traj}
 
-    results = []
-    for (alpha, beta) in coords:
-        y0 = image_plane_to_initial_state(alpha, beta)
-        traj = integrate_rk45(lambda l, yy: geodesic_equations(l, yy, M, a), 
-                             y0, 0.0, LAMBDA_MAX)
-        results.append({'alpha':alpha, 'beta':beta, 'traj':traj})
-    
-    return results
+
+def simulate_photons_mpi(N_photons=N_PHOTONS, img_extent=IMG_EXTENT):
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+
+    # Only rank 0 prepares the coordinates
+    if rank == 0:
+        n = int(np.ceil(np.sqrt(N_photons)))
+        alphas = np.linspace(-img_extent, img_extent, n)
+        betas  = np.linspace(-img_extent, img_extent, n)
+        coords = [(a, b) for b in betas for a in alphas][:N_photons]
+    else:
+        coords = None
+
+    # Scatter chunks of work
+    coords = comm.scatter(
+        [coords[i::size] for i in range(size)] if rank == 0 else None,
+        root=0
+    )
+
+    # Each rank computes its results
+    local_results = [simulate_single_photon(a, b) for a, b in coords]
+
+    # Gather all results at rank 0
+    all_results = comm.gather(local_results, root=0)
+
+    # Rank 0 flattens the list
+    if rank == 0:
+        return [item for sublist in all_results for item in sublist]
+    else:
+        return None
 
 
 def plot_geodesics(results, plot_radius=PLOT_RADIUS):
@@ -235,5 +255,14 @@ def plot_geodesics(results, plot_radius=PLOT_RADIUS):
 
 
 if __name__ == "__main__":
-    print("Simulating", N_PHOTONS, "photons with IMG_EXTENT=", IMG_EXTENT)
-    results = simulate_photons(N_PHOTONS)
+    from mpi4py import MPI
+    rank = MPI.COMM_WORLD.Get_rank()
+
+    if rank == 0:
+        print(f"Simulating {N_PHOTONS} photons across MPI ranks")
+
+    results = simulate_photons_mpi(N_PHOTONS)
+
+    # Only rank 0 proceeds to plotting or writing results
+    if rank == 0:
+        plot_geodesics(results)
