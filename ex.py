@@ -13,8 +13,8 @@ M = 1.0
 a = 0.9     
 
 
-N_PHOTONS = 1000
-LAMBDA_MAX = 200.0
+N_PHOTONS = 10000
+LAMBDA_MAX = 250.0
 H_INIT = 0.1        
 RTOL = 1e-10       
 ATOL = 1e-13       
