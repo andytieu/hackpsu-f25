@@ -12,9 +12,11 @@ class GravitationalSphereSimulation {
         // Gravitational parameters
         this.gravityParams = {
             mass: 1.0,
-            gravitationalConstant: .01,
-            maxPhotons: 20, // Reduced for first cluster
-            maxPhotons2: 20 // Second cluster
+            gravitationalConstant: 0.1,
+            maxPhotons: 15, // Reduced for first cluster
+            maxPhotons2: 15, // Second cluster
+            useRelativisticPhysics: true, // Enable relativistic physics
+            showEventHorizon: true // Show event horizon
         };
         
         // Arrays for photons and trails
@@ -62,6 +64,53 @@ class GravitationalSphereSimulation {
         });
         this.gravitationalObject = new THREE.Mesh(sphereGeometry, sphereMaterial);
         this.scene.add(this.gravitationalObject);
+        
+        // Create event horizon visualization
+        if (this.gravityParams.showEventHorizon) {
+            this.createEventHorizon();
+        }
+    }
+    
+    createEventHorizon() {
+        const rs = RelativisticPhysics.schwarzschildRadius(this.gravityParams.mass);
+        
+        // Create event horizon sphere (slightly larger than Schwarzschild radius)
+        const eventHorizonGeometry = new THREE.SphereGeometry(rs, 32, 32);
+        const eventHorizonMaterial = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide
+        });
+        
+        this.eventHorizon = new THREE.Mesh(eventHorizonGeometry, eventHorizonMaterial);
+        this.scene.add(this.eventHorizon);
+        
+        // Create photon sphere visualization
+        const photonSphereRadius = RelativisticPhysics.photonSphereRadius(this.gravityParams.mass);
+        const photonSphereGeometry = new THREE.SphereGeometry(photonSphereRadius, 32, 32);
+        const photonSphereMaterial = new THREE.MeshBasicMaterial({
+            color: 0x444444,
+            transparent: true,
+            opacity: 0.1,
+            wireframe: true
+        });
+        
+        this.photonSphere = new THREE.Mesh(photonSphereGeometry, photonSphereMaterial);
+        this.scene.add(this.photonSphere);
+        
+        // Create ISCO visualization
+        const iscoRadius = RelativisticPhysics.iscoRadius(this.gravityParams.mass);
+        const iscoGeometry = new THREE.SphereGeometry(iscoRadius, 32, 32);
+        const iscoMaterial = new THREE.MeshBasicMaterial({
+            color: 0x666666,
+            transparent: true,
+            opacity: 0.05,
+            wireframe: true
+        });
+        
+        this.isco = new THREE.Mesh(iscoGeometry, iscoMaterial);
+        this.scene.add(this.isco);
     }
     
     setupLighting() {
@@ -175,7 +224,11 @@ class GravitationalSphereSimulation {
     }
     
     calculateGravitationalForce(photon) {
-        return PhysicsUtils.calculateGravitationalForce(photon, this.gravityParams);
+        if (this.gravityParams.useRelativisticPhysics) {
+            return RelativisticPhysics.calculateRelativisticForce(photon, this.gravityParams);
+        } else {
+            return PhysicsUtils.calculateGravitationalForce(photon, this.gravityParams);
+        }
     }
     
     updatePhotons() {
@@ -183,29 +236,49 @@ class GravitationalSphereSimulation {
         this.photons.forEach(photon => {
             const userData = photon.userData;
 
-            // Calculate gravitational force
-            const gravitationalForce = this.calculateGravitationalForce(photon);
+            // Check if photon is captured by event horizon
+            if (RelativisticPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass)) {
+                this.resetPhoton(photon);
+                return;
+            }
 
-            // Apply gravitational force to velocity
-            userData.velocity.add(gravitationalForce);
+            if (this.gravityParams.useRelativisticPhysics) {
+                // Use relativistic geodesic integration
+                const result = GeodesicIntegrator.integrateGeodesic(
+                    photon.position,
+                    userData.velocity,
+                    this.gravityParams.mass,
+                    0.016 // ~60 FPS
+                );
+                
+                if (result) {
+                    photon.position.copy(result.position);
+                    userData.velocity.copy(result.velocity);
+                    
+                    // Apply relativistic velocity limit
+                    userData.velocity = RelativisticPhysics.limitRelativisticVelocity(userData.velocity);
+                } else {
+                    // Unstable integration - reset photon
+                    this.resetPhoton(photon);
+                    return;
+                }
+            } else {
+                // Classical physics (original code)
+                const gravitationalForce = this.calculateGravitationalForce(photon);
+                userData.velocity.add(gravitationalForce);
+                photon.position.add(userData.velocity);
+                
+                const orbitalForce = PhysicsUtils.calculateOrbitalForce(photon.position, userData.orbitalSpeed);
+                userData.velocity.add(orbitalForce);
+                userData.velocity = PhysicsUtils.limitVelocity(userData.velocity, 0.4);
+                photon.position.y = PhysicsUtils.addVerticalOscillation(photon.position, userData.angle, 0.001);
+            }
 
-            // Apply velocity to position
-            photon.position.add(userData.velocity);
-
-            // Add orbital motion (X-Z plane)
-            const orbitalForce = PhysicsUtils.calculateOrbitalForce(photon.position, userData.orbitalSpeed);
-            userData.velocity.add(orbitalForce);
-
-            // Limit velocity to prevent runaway acceleration
-            userData.velocity = PhysicsUtils.limitVelocity(userData.velocity, 0.4);
-
-            // Add slight vertical oscillation
-            photon.position.y = PhysicsUtils.addVerticalOscillation(photon.position, userData.angle, 0.001);
             TrailManager.updateTrail(photon, this.photonTrails);
 
-            // Reset photon if it gets too far or too close
+            // Reset photon if it gets too far
             const distance = photon.position.length();
-            if (distance > 11.25 || distance < 1.5) {
+            if (distance > 20) {
                 this.resetPhoton(photon);
             }
         });
@@ -214,33 +287,53 @@ class GravitationalSphereSimulation {
         this.photons2.forEach(photon => {
             const userData = photon.userData;
 
-            // Calculate gravitational force
-            const gravitationalForce = this.calculateGravitationalForce(photon);
+            // Check if photon is captured by event horizon
+            if (RelativisticPhysics.isInsideEventHorizon(photon.position, this.gravityParams.mass)) {
+                this.resetPhoton2(photon);
+                return;
+            }
 
-            // Apply gravitational force to velocity
-            userData.velocity.add(gravitationalForce);
+            if (this.gravityParams.useRelativisticPhysics) {
+                // Use relativistic geodesic integration
+                const result = GeodesicIntegrator.integrateGeodesic(
+                    photon.position,
+                    userData.velocity,
+                    this.gravityParams.mass,
+                    0.016 // ~60 FPS
+                );
+                
+                if (result) {
+                    photon.position.copy(result.position);
+                    userData.velocity.copy(result.velocity);
+                    
+                    // Apply relativistic velocity limit
+                    userData.velocity = RelativisticPhysics.limitRelativisticVelocity(userData.velocity);
+                } else {
+                    // Unstable integration - reset photon
+                    this.resetPhoton2(photon);
+                    return;
+                }
+            } else {
+                // Classical physics (original code)
+                const gravitationalForce = this.calculateGravitationalForce(photon);
+                userData.velocity.add(gravitationalForce);
+                photon.position.add(userData.velocity);
+                
+                const orbitalForce = new THREE.Vector3(
+                    -photon.position.y * userData.orbitalSpeed,
+                    photon.position.x * userData.orbitalSpeed,
+                    0
+                );
+                userData.velocity.add(orbitalForce);
+                userData.velocity = PhysicsUtils.limitVelocity(userData.velocity, 0.4);
+                photon.position.x += Math.sin(Date.now() * 0.001 + userData.angle) * 0.001;
+            }
 
-            // Apply velocity to position
-            photon.position.add(userData.velocity);
-
-            // Add orbital motion (Y-Z plane) - perpendicular to first cluster
-            const orbitalForce = new THREE.Vector3(
-                -photon.position.y * userData.orbitalSpeed,
-                photon.position.x * userData.orbitalSpeed,
-                0
-            );
-            userData.velocity.add(orbitalForce);
-
-            // Limit velocity to prevent runaway acceleration
-            userData.velocity = PhysicsUtils.limitVelocity(userData.velocity, 0.4);
-
-            // Add slight oscillation in X direction
-            photon.position.x += Math.sin(Date.now() * 0.001 + userData.angle) * 0.001;
             TrailManager.updateTrail(photon, this.photonTrails2);
 
-            // Reset photon if it gets too far or too close
+            // Reset photon if it gets too far
             const distance = photon.position.length();
-            if (distance > 11.25 || distance < 1.5) {
+            if (distance > 20) {
                 this.resetPhoton2(photon);
             }
         });
@@ -415,7 +508,59 @@ class GravitationalSphereSimulation {
             const newMass = parseFloat(e.target.value);
             massValue.textContent = newMass.toFixed(1);
             this.gravityParams.mass = newMass;
+            this.updateEventHorizon();
         });
+        
+        // Relativistic physics toggle
+        const relativisticToggle = document.getElementById('relativistic-toggle');
+        relativisticToggle.addEventListener('change', (e) => {
+            this.gravityParams.useRelativisticPhysics = e.target.checked;
+        });
+        
+        // Event horizon toggle
+        const eventHorizonToggle = document.getElementById('event-horizon-toggle');
+        eventHorizonToggle.addEventListener('change', (e) => {
+            this.gravityParams.showEventHorizon = e.target.checked;
+            this.toggleEventHorizon();
+        });
+    }
+    
+    updateEventHorizon() {
+        if (this.eventHorizon) {
+            const rs = RelativisticPhysics.schwarzschildRadius(this.gravityParams.mass);
+            this.eventHorizon.geometry.dispose();
+            this.eventHorizon.geometry = new THREE.SphereGeometry(rs, 32, 32);
+        }
+        
+        if (this.photonSphere) {
+            const photonSphereRadius = RelativisticPhysics.photonSphereRadius(this.gravityParams.mass);
+            this.photonSphere.geometry.dispose();
+            this.photonSphere.geometry = new THREE.SphereGeometry(photonSphereRadius, 32, 32);
+        }
+        
+        if (this.isco) {
+            const iscoRadius = RelativisticPhysics.iscoRadius(this.gravityParams.mass);
+            this.isco.geometry.dispose();
+            this.isco.geometry = new THREE.SphereGeometry(iscoRadius, 32, 32);
+        }
+    }
+    
+    toggleEventHorizon() {
+        if (this.gravityParams.showEventHorizon) {
+            if (!this.eventHorizon) {
+                this.createEventHorizon();
+            } else {
+                this.eventHorizon.visible = true;
+                this.photonSphere.visible = true;
+                this.isco.visible = true;
+            }
+        } else {
+            if (this.eventHorizon) {
+                this.eventHorizon.visible = false;
+                this.photonSphere.visible = false;
+                this.isco.visible = false;
+            }
+        }
     }
     
     updatePhotonCount(newCount) {
@@ -531,6 +676,15 @@ class GravitationalSphereSimulation {
             photonCount: this.photons.length + this.photons2.length,
             gravitationalConstant: this.gravityParams.gravitationalConstant
         });
+        
+        // Update relativistic information
+        const rs = RelativisticPhysics.schwarzschildRadius(this.gravityParams.mass);
+        const photonSphereRadius = RelativisticPhysics.photonSphereRadius(this.gravityParams.mass);
+        const iscoRadius = RelativisticPhysics.iscoRadius(this.gravityParams.mass);
+        
+        document.getElementById('event-horizon-radius').textContent = rs.toFixed(2);
+        document.getElementById('photon-sphere-radius').textContent = photonSphereRadius.toFixed(2);
+        document.getElementById('isco-radius').textContent = iscoRadius.toFixed(2);
     }
     
     animate() {
