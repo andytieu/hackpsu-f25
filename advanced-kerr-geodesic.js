@@ -202,13 +202,22 @@ class AdvancedKerrGeodesic {
      */
     integrateRK45(f, y0, l0, l_max, h_init = 0.1, h_min = 1e-8, h_max = 0.1, 
                     rtol = 1e-10, atol = 1e-13) {
+        // Early exit for very small masses to avoid performance issues
+        if (this.M < 0.1 && l_max > 0.01) {
+            // Scale down integration steps for small masses
+            l_max = Math.min(l_max, 0.01);
+        }
+        
         let y = [...y0];
         let l = l0;
         let h = h_init;
         const traj = [y];
         let steps = 0;
         
-        while (l < l_max && steps < 500000) {
+        // Limit max steps for performance (was 500000, now 200 for real-time)
+        const MAX_STEPS = 200;
+        
+        while (l < l_max && steps < MAX_STEPS) {
             const result = this.rk45Step(f, l, y, h);
             const tol = atol + rtol * this.vectorNorm(y);
             const accept = (result.err <= tol) || (h <= h_min);
@@ -216,7 +225,10 @@ class AdvancedKerrGeodesic {
             if (accept) {
                 y = result.y;
                 l += h;
-                traj.push([...y]);
+                // Only store every 3rd point to reduce memory
+                if (steps % 3 === 0) {
+                    traj.push([...y]);
+                }
                 steps++;
                 
                 const r_current = y[1];
