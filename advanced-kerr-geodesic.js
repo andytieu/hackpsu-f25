@@ -8,7 +8,6 @@ class AdvancedKerrGeodesic {
         this.M = mass;
         this.a = spin;
     }
-    
     /**
      * Calculate Kerr metric components
      */
@@ -34,6 +33,7 @@ class AdvancedKerrGeodesic {
     /**
      * Calculate Christoffel symbols numerically
      */
+
     christoffelSymbols(r, theta, h = 1e-8) {
         const g0 = this.kerrMetric(r, theta);
         const g_inv = this.inverseMetric(g0);
